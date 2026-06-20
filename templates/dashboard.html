@@ -170,6 +170,47 @@
         </div>
     </section>
 
+    <!-- Change Summary & Map Overlays Panel -->
+    <section class="control-group summary-group" id="change-summary-panel" style="display: none;">
+        <div class="panel-header">
+            <i class="fa-solid fa-layer-group icon-accent"></i>
+            <h3>Change Summary & Overlays</h3>
+        </div>
+        <div class="summary-content" style="font-size: 0.8rem; line-height: 1.4; color: var(--text-muted);">
+            <div class="summary-highlight" style="background: rgba(0, 240, 255, 0.04); border: 1px solid rgba(0, 240, 255, 0.15); padding: 10px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 0 10px rgba(0,240,255,0.02);">
+                <strong style="color: var(--accent); display: flex; align-items: center; gap: 6px; font-size: 0.82rem; margin-bottom: 4px;">
+                    <i class="fa-solid fa-circle-check"></i> AI Change Verdict
+                </strong>
+                <span id="change-summary-verdict" style="color: var(--text-primary);">No change analyzed yet.</span>
+            </div>
+            
+            <div class="overlay-controls" style="border-top: 1px dashed var(--border-color); padding-top: 10px;">
+                <span class="date-label" style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: var(--text-primary); font-size: 0.76rem; font-weight: 600;">
+                    <i class="fa-solid fa-eye text-cyan"></i> Active Map Overlays
+                </span>
+                
+                <div class="overlay-checkboxes" style="display: flex; flex-direction: column; gap: 8px; padding-left: 2px;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-muted); font-size: 0.78rem;">
+                        <input type="checkbox" id="chk-overlay-veg" style="accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer;">
+                        <span>Vegetation Loss Heatmap (AI)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-muted); font-size: 0.78rem;">
+                        <input type="checkbox" id="chk-overlay-urban" style="accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer;">
+                        <span>Urban Expansion Footprint</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; color: var(--text-muted); font-size: 0.78rem;">
+                        <input type="checkbox" id="chk-overlay-water" style="accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer;">
+                        <span>Water Body Boundary Shift</span>
+                    </label>
+                </div>
+                
+                <div class="overlay-status" id="overlay-status-text" style="font-size: 0.68rem; color: var(--text-dim); margin-top: 10px; font-style: italic; border-left: 2px solid rgba(255,255,255,0.05); padding-left: 8px;">
+                    Toggle layers to superimpose mock overlays on both map views.
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- Evidence Explorer Panel (v3) -->
     <section class="control-group evidence-group" id="evidence-panel" style="display: none;">
         <div class="panel-header">

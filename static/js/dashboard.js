@@ -68,6 +68,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Map State variables
     let mapBefore;
     let mapAfter;
+    let tileLayerBefore = null;
+    let tileLayerAfter = null;
     let markerBefore = null;
     let markerAfter = null;
     let selectedCoords = null;
@@ -82,6 +84,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let replayInterval = null;
     let activeStoryCards = [];
 
+    // Preloaded timeline layers cache (to prevent flickering)
+    let timelineLayersBefore = {};
+    
+    // Mock overlays for change detection layers
+    let mockOverlayLayers = {
+        veg: [],
+        urban: [],
+        water: []
+    };
+
     // V4 Demo Hotspots Configurations
     const demoHotspots = {
         hyderabad: { lat: 17.3850, lng: 78.4867, name: 'Hyderabad, India', start: '2016-01-01', end: '2026-01-01' },
@@ -89,6 +101,71 @@ document.addEventListener('DOMContentLoaded', () => {
         singapore: { lat: 1.3521, lng: 103.8198, name: 'Singapore', start: '2014-01-01', end: '2026-01-01' },
         bengaluru: { lat: 12.9716, lng: 77.5946, name: 'Bengaluru, India', start: '2016-01-01', end: '2026-01-01' }
     };
+
+    // Helper: Map year to true historical satellite tiles (Sentinel-2 and Landsat/Esri Wayback)
+    function getSatelliteTileUrl(year) {
+        const y = parseInt(year);
+        if (isNaN(y)) {
+            return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+        }
+        
+        if (y < 2014) {
+            // Fallback for years < 2014 is Esri Wayback 2014
+            return 'https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/31144/{z}/{y}/{x}';
+        } else if (y === 2014) {
+            return 'https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/31144/{z}/{y}/{x}';
+        } else if (y === 2015) {
+            return 'https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/11952/{z}/{y}/{x}';
+        } else if (y === 2016) {
+            // EOX Sentinel-2 Cloudless 2016 is named s2cloudless_3857
+            return 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg';
+        } else if (y <= 2025) {
+            // EOX Sentinel-2 Cloudless 2017-2025
+            return `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-${y}_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg`;
+        } else {
+            // For years >= 2026, fallback to modern ESRI World Imagery
+            return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+        }
+    }
+
+    // Helper: Attributions for EOX / ESRI / Wayback Imagery
+    function getSatelliteAttribution(year) {
+        const y = parseInt(year);
+        if (isNaN(y)) {
+            return 'Tiles &copy; Esri &mdash; Source: Esri, USDA, USGS';
+        }
+        if (y < 2014) {
+            return 'Tiles &copy; Esri (Wayback 2014) &mdash; Source: Esri, USDA, USGS';
+        } else if (y === 2014) {
+            return 'Tiles &copy; Esri (Wayback 2014) &mdash; Source: Esri, USDA, USGS';
+        } else if (y === 2015) {
+            return 'Tiles &copy; Esri (Wayback 2015) &mdash; Source: Esri, USDA, USGS';
+        } else if (y === 2016) {
+            return 'Sentinel-2 cloudless &copy; EOX IT Services (Modified Copernicus Sentinel data 2016)';
+        } else if (y <= 2025) {
+            return `Sentinel-2 cloudless &copy; EOX IT Services (Modified Copernicus Sentinel data ${y})`;
+        } else {
+            return 'Tiles &copy; Esri &mdash; Source: Esri, USDA, USGS';
+        }
+    }
+
+    // Map Tile Loading State Visual Indicator Handler
+    function updateMapLoadingState(pane, isLoading) {
+        const label = document.querySelector(`.${pane}-label`);
+        if (!label) return;
+        
+        const labelText = pane === 'before' ? 'Before (Start Date)' : 'After (End Date)';
+        if (isLoading) {
+            if (!label.innerHTML.includes('fa-spinner')) {
+                label.innerHTML = `${labelText} <i class="fa-solid fa-spinner fa-spin" style="margin-left: 6px; color: var(--accent);"></i>`;
+            }
+        } else {
+            // Tiny timeout to prevent flickering on fast loads
+            setTimeout(() => {
+                label.innerHTML = labelText;
+            }, 200);
+        }
+    }
 
     // 1. Initialize Dual Synchronized Maps
     function initMap() {
@@ -106,10 +183,18 @@ document.addEventListener('DOMContentLoaded', () => {
             minZoom: 2
         }).setView([20.0, 0.0], 3);
 
-        // Define ESRI Satellite base layer for Before
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, USDA, USGS'
+        const startYear = parseInt(startDateInput.value.substring(0, 4)) || 2016;
+        const endYear = parseInt(endDateInput.value.substring(0, 4)) || 2026;
+
+        // Initialize base layers with historical composites and error fallbacks
+        tileLayerBefore = L.tileLayer(getSatelliteTileUrl(startYear), {
+            attribution: getSatelliteAttribution(startYear),
+            maxZoom: 18,
+            errorTileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
         }).addTo(mapBefore);
+
+        tileLayerBefore.on('loading', () => updateMapLoadingState('before', true));
+        tileLayerBefore.on('load', () => updateMapLoadingState('before', false));
 
         // Define ESRI Hybrid borders overlay for Before
         L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
@@ -117,10 +202,14 @@ document.addEventListener('DOMContentLoaded', () => {
             opacity: 0.85
         }).addTo(mapBefore);
 
-        // Define ESRI Satellite base layer for After
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: 'Tiles &copy; Esri'
+        tileLayerAfter = L.tileLayer(getSatelliteTileUrl(endYear), {
+            attribution: getSatelliteAttribution(endYear),
+            maxZoom: 18,
+            errorTileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
         }).addTo(mapAfter);
+
+        tileLayerAfter.on('loading', () => updateMapLoadingState('after', true));
+        tileLayerAfter.on('load', () => updateMapLoadingState('after', false));
 
         // Define ESRI Hybrid borders overlay for After
         L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
@@ -509,7 +598,153 @@ document.addEventListener('DOMContentLoaded', () => {
         evidencePanel.style.display = 'block';
     }
 
-    // V4 Earth Replay Step Updater
+    // Clear pre-cached timeline layers
+    function clearTimelineLayers() {
+        for (const y in timelineLayersBefore) {
+            if (timelineLayersBefore[y]) {
+                mapBefore.removeLayer(timelineLayersBefore[y]);
+            }
+        }
+        timelineLayersBefore = {};
+    }
+
+    // Set up and pre-cache timeline layers to prevent flickering during replay
+    function setupTimelineLayers(years) {
+        clearTimelineLayers();
+        
+        years.forEach(year => {
+            const y = parseInt(year);
+            const url = getSatelliteTileUrl(y);
+            const attr = getSatelliteAttribution(y);
+            
+            // Create layer with opacity 0 (so it pre-loads tiles)
+            const layer = L.tileLayer(url, {
+                attribution: attr,
+                maxZoom: 18,
+                errorTileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                opacity: 0
+            }).addTo(mapBefore);
+            
+            layer.on('loading', () => updateMapLoadingState('before', true));
+            layer.on('load', () => updateMapLoadingState('before', false));
+            
+            timelineLayersBefore[y] = layer;
+        });
+    }
+
+    // Clear all mock overlay vector layers from both map views
+    function clearMockOverlays() {
+        for (const type in mockOverlayLayers) {
+            mockOverlayLayers[type].forEach(layer => {
+                mapBefore.removeLayer(layer);
+                mapAfter.removeLayer(layer);
+            });
+            mockOverlayLayers[type] = [];
+        }
+        
+        const vegChk = document.getElementById('chk-overlay-veg');
+        const urbanChk = document.getElementById('chk-overlay-urban');
+        const waterChk = document.getElementById('chk-overlay-water');
+        if (vegChk) vegChk.checked = false;
+        if (urbanChk) urbanChk.checked = false;
+        if (waterChk) waterChk.checked = false;
+        
+        const statusText = document.getElementById('overlay-status-text');
+        if (statusText) {
+            statusText.textContent = "Toggle layers to superimpose mock overlays on both map views.";
+        }
+    }
+
+    // Draw interactive mockup detection overlays on top of map views
+    function toggleMockOverlay(layerName, isChecked) {
+        if (!selectedCoords) return;
+        const lat = selectedCoords.lat;
+        const lng = selectedCoords.lng;
+        
+        // Remove existing of this type
+        mockOverlayLayers[layerName].forEach(layer => {
+            mapBefore.removeLayer(layer);
+            mapAfter.removeLayer(layer);
+        });
+        mockOverlayLayers[layerName] = [];
+        
+        if (isChecked) {
+            const statusText = document.getElementById('overlay-status-text');
+            
+            if (layerName === 'veg') {
+                const circleBefore = L.circle([lat, lng], {
+                    color: '#ef4444',
+                    fillColor: '#ef4444',
+                    fillOpacity: 0.35,
+                    weight: 2,
+                    radius: 700
+                }).addTo(mapBefore);
+                circleBefore.bindPopup("AI Detected: Severe canopy loss & vegetation clearance.");
+                mockOverlayLayers.veg.push(circleBefore);
+                
+                const circleAfter = L.circle([lat, lng], {
+                    color: '#ef4444',
+                    fillColor: '#ef4444',
+                    fillOpacity: 0.1,
+                    weight: 1,
+                    radius: 700
+                }).addTo(mapAfter);
+                circleAfter.bindPopup("AI Detected: Cleared zone footprint.");
+                mockOverlayLayers.veg.push(circleAfter);
+                
+                if (statusText) statusText.textContent = "Displaying Vegetation Loss Heatmap (Red circles show cleared areas).";
+            }
+            else if (layerName === 'urban') {
+                const rectBefore = L.rectangle([[lat - 0.004, lng - 0.004], [lat + 0.004, lng + 0.004]], {
+                    color: '#f97316',
+                    fillColor: '#f97316',
+                    fillOpacity: 0.1,
+                    weight: 1.5
+                }).addTo(mapBefore);
+                rectBefore.bindPopup("Baseline: Sparse built-up grid.");
+                mockOverlayLayers.urban.push(rectBefore);
+
+                const rectAfter = L.rectangle([[lat - 0.004, lng - 0.004], [lat + 0.004, lng + 0.004]], {
+                    color: '#f97316',
+                    fillColor: '#f97316',
+                    fillOpacity: 0.45,
+                    weight: 2
+                }).addTo(mapAfter);
+                rectAfter.bindPopup("AI Detected: Major new structure / built-up expansion (+80% density).");
+                mockOverlayLayers.urban.push(rectAfter);
+                
+                if (statusText) statusText.textContent = "Displaying Urban Expansion Footprint (Orange highlights new infrastructure).";
+            }
+            else if (layerName === 'water') {
+                const wLat = lat + 0.002;
+                const wLng = lng - 0.003;
+                
+                const waterBefore = L.circle([wLat, wLng], {
+                    color: '#3b82f6',
+                    fillColor: '#3b82f6',
+                    fillOpacity: 0.4,
+                    weight: 2,
+                    radius: 400
+                }).addTo(mapBefore);
+                waterBefore.bindPopup("Baseline: Full reservoir / water body boundary.");
+                mockOverlayLayers.water.push(waterBefore);
+
+                const waterAfter = L.circle([wLat, wLng], {
+                    color: '#3b82f6',
+                    fillColor: '#3b82f6',
+                    fillOpacity: 0.15,
+                    weight: 2,
+                    radius: 250
+                }).addTo(mapAfter);
+                waterAfter.bindPopup("AI Detected: Significant water level shrinkage / dry-up.");
+                mockOverlayLayers.water.push(waterAfter);
+                
+                if (statusText) statusText.textContent = "Displaying Water Body Shift (Blue overlays show water boundary shrinkage).";
+            }
+        }
+    }
+
+    // V4 Earth Replay Step Updater (Optimized to toggle opacity instead of setting URLs, preventing flicker)
     function updateReplayStep(index) {
         if (!activeTimelineEvents || activeTimelineEvents.length === 0) return;
 
@@ -518,6 +753,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const event = activeTimelineEvents[index];
         replayYearLabel.textContent = event.year;
+        
+        // Update Replay progress text label
+        const progressLabel = document.getElementById('replay-progress-label');
+        if (progressLabel) {
+            progressLabel.textContent = `Step ${index + 1}/${activeTimelineEvents.length}`;
+        }
+
+        // Visibly transition layers using cached tilelayers
+        const activeYear = parseInt(event.year);
+        if (timelineLayersBefore && timelineLayersBefore[activeYear]) {
+            // Hide the base layer
+            if (tileLayerBefore) tileLayerBefore.setOpacity(0);
+            
+            // Show only the current step's year
+            for (const y in timelineLayersBefore) {
+                if (parseInt(y) === activeYear) {
+                    timelineLayersBefore[y].setOpacity(1.0);
+                } else {
+                    timelineLayersBefore[y].setOpacity(0);
+                }
+            }
+        } else {
+            // Fallback to setting URL on the single layer
+            if (tileLayerBefore) {
+                tileLayerBefore.setOpacity(1.0);
+                tileLayerBefore.setUrl(getSatelliteTileUrl(event.year));
+            }
+        }
 
         // Dynamically update metrics panel values during evolution replay
         metricVeg.textContent = event.metrics.vegetation_change;
@@ -532,7 +795,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // Dynamically fade Before map styling during replay to showcase progression
         const mapBeforeEl = document.getElementById('map-before');
         if (mapBeforeEl) {
-            // Grayscale decreases as year approaches the final date
             const grayVal = Math.max(0, 85 - (ratio * 85));
             const brightnessVal = 0.85 + (ratio * 0.15);
             mapBeforeEl.style.filter = `grayscale(${grayVal}%) contrast(1.05) brightness(${brightnessVal})`;
@@ -620,6 +882,21 @@ document.addEventListener('DOMContentLoaded', () => {
         storyPanel.style.display = 'block';
     }
 
+    // Live Date Input Listeners: Swap satellite imagery dynamically in real time
+    startDateInput.addEventListener('change', () => {
+        const startYear = parseInt(startDateInput.value.substring(0, 4));
+        if (!isNaN(startYear) && tileLayerBefore) {
+            tileLayerBefore.setUrl(getSatelliteTileUrl(startYear));
+        }
+    });
+
+    endDateInput.addEventListener('change', () => {
+        const endYear = parseInt(endDateInput.value.substring(0, 4));
+        if (!isNaN(endYear) && tileLayerAfter) {
+            tileLayerAfter.setUrl(getSatelliteTileUrl(endYear));
+        }
+    });
+
     // 12. AI Analysis Handler (Single Point)
     btnAnalyzeAi.addEventListener('click', () => {
         if (!selectedCoords) return;
@@ -633,6 +910,13 @@ document.addEventListener('DOMContentLoaded', () => {
         evidencePanel.style.display = 'none';
         storyPanel.style.display = 'none';
         replayControlsPanel.style.display = 'none';
+        
+        // Clear mock overlays and timeline layers
+        clearMockOverlays();
+        clearTimelineLayers();
+        const changeSummaryPanel = document.getElementById('change-summary-panel');
+        if (changeSummaryPanel) changeSummaryPanel.style.display = 'none';
+        
         activeRecordId = null;
         pauseReplay();
         terminalLoading.style.display = 'flex';
@@ -715,6 +999,15 @@ document.addEventListener('DOMContentLoaded', () => {
         evidencePanel.style.display = 'none';
         storyPanel.style.display = 'none';
         replayControlsPanel.style.display = 'none';
+        
+        // Hide Change Summary panel
+        const changeSummaryPanel = document.getElementById('change-summary-panel');
+        if (changeSummaryPanel) changeSummaryPanel.style.display = 'none';
+        
+        // Clear mock overlays and timeline layers
+        clearMockOverlays();
+        clearTimelineLayers();
+        
         activeRecordId = null;
         pauseReplay();
         terminalLoading.style.display = 'flex';
@@ -764,11 +1057,42 @@ document.addEventListener('DOMContentLoaded', () => {
             if (activeRecordId) {
                 terminalActions.style.display = 'flex';
             }
-
+            
             // Populate Before/After Story Mode & Replay Player (v4)
             if (data.record) {
                 populateStoryMode(data.record);
                 
+                // Update map imagery to display correct historical years on load and reset opacity
+                const recordStartYear = parseInt(data.record.start_date.substring(0, 4)) || 2016;
+                const recordEndYear = parseInt(data.record.end_date.substring(0, 4)) || 2026;
+                if (tileLayerBefore) {
+                    tileLayerBefore.setOpacity(1.0);
+                    tileLayerBefore.setUrl(getSatelliteTileUrl(recordStartYear));
+                }
+                if (tileLayerAfter) {
+                    tileLayerAfter.setOpacity(1.0);
+                    tileLayerAfter.setUrl(getSatelliteTileUrl(recordEndYear));
+                }
+
+                // Setup pre-cached layers for timeline replay to minimize flickering
+                const years = (data.record.timeline_json || []).map(e => e.year);
+                if (years.length > 0) {
+                    setupTimelineLayers(years);
+                }
+
+                // Setup Change Summary verdict & overlays panel
+                const verdictSpan = document.getElementById('change-summary-verdict');
+                if (verdictSpan) {
+                    if (data.record.biography) {
+                        const firstSentence = data.record.biography.split(/[.!?]/)[0] + '.';
+                        verdictSpan.textContent = firstSentence;
+                    } else {
+                        verdictSpan.textContent = `Significant environmental shift detected between ${data.record.start_date.substring(0,4)} and ${data.record.end_date.substring(0,4)}.`;
+                    }
+                }
+                const changeSummaryPanel = document.getElementById('change-summary-panel');
+                if (changeSummaryPanel) changeSummaryPanel.style.display = 'block';
+
                 // Automatically kick off Earth Replay evolution animation
                 setTimeout(() => {
                     updateReplayStep(0);
@@ -898,6 +1222,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Render Before/After Story Mode & Timeline Replay (v4)
                 populateStoryMode(rec);
+
+                // Load correct start/end date satellite tiles onto viewports and reset opacity
+                const archiveStartYear = parseInt(rec.start_date.substring(0, 4)) || 2016;
+                const archiveEndYear = parseInt(rec.end_date.substring(0, 4)) || 2026;
+                if (tileLayerBefore) {
+                    tileLayerBefore.setOpacity(1.0);
+                    tileLayerBefore.setUrl(getSatelliteTileUrl(archiveStartYear));
+                }
+                if (tileLayerAfter) {
+                    tileLayerAfter.setOpacity(1.0);
+                    tileLayerAfter.setUrl(getSatelliteTileUrl(archiveEndYear));
+                }
+
+                // Clear mock overlays and setup pre-cached timeline layers
+                clearMockOverlays();
+                const years = (rec.timeline_json || []).map(e => e.year);
+                if (years.length > 0) {
+                    setupTimelineLayers(years);
+                }
+
+                // Setup Change Summary verdict & overlays panel
+                const verdictSpan = document.getElementById('change-summary-verdict');
+                if (verdictSpan) {
+                    if (rec.biography) {
+                        const firstSentence = rec.biography.split(/[.!?]/)[0] + '.';
+                        verdictSpan.textContent = firstSentence;
+                    } else {
+                        verdictSpan.textContent = `Significant environmental shift detected between ${rec.start_date.substring(0,4)} and ${rec.end_date.substring(0,4)}.`;
+                    }
+                }
+                const changeSummaryPanel = document.getElementById('change-summary-panel');
+                if (changeSummaryPanel) changeSummaryPanel.style.display = 'block';
 
                 // Set active record ID for exports
                 activeRecordId = rec.id;
@@ -1116,11 +1472,47 @@ document.addEventListener('DOMContentLoaded', () => {
             replayControlsPanel.style.display = 'none';
             storyPanel.style.display = 'none';
             
+            // Hide Change Summary panel
+            const changeSummaryPanel = document.getElementById('change-summary-panel');
+            if (changeSummaryPanel) changeSummaryPanel.style.display = 'none';
+            
+            // Clear preloaded layers and mock overlays
+            clearTimelineLayers();
+            clearMockOverlays();
+            
             // Reset Before Map filter grayscale
             const mapBeforeEl = document.getElementById('map-before');
             if (mapBeforeEl) {
                 mapBeforeEl.style.filter = `grayscale(85%) contrast(1.05) brightness(0.85)`;
             }
+
+            // Restore map base tiles to the default start date input year and reset opacity
+            const startYear = parseInt(startDateInput.value.substring(0, 4)) || 2016;
+            if (tileLayerBefore) {
+                tileLayerBefore.setOpacity(1.0);
+                tileLayerBefore.setUrl(getSatelliteTileUrl(startYear));
+            }
+        });
+    }
+
+    // Bind Change Summary Overlays Checkboxes
+    const chkOverlayVeg = document.getElementById('chk-overlay-veg');
+    const chkOverlayUrban = document.getElementById('chk-overlay-urban');
+    const chkOverlayWater = document.getElementById('chk-overlay-water');
+    
+    if (chkOverlayVeg) {
+        chkOverlayVeg.addEventListener('change', (e) => {
+            toggleMockOverlay('veg', e.target.checked);
+        });
+    }
+    if (chkOverlayUrban) {
+        chkOverlayUrban.addEventListener('change', (e) => {
+            toggleMockOverlay('urban', e.target.checked);
+        });
+    }
+    if (chkOverlayWater) {
+        chkOverlayWater.addEventListener('change', (e) => {
+            toggleMockOverlay('water', e.target.checked);
         });
     }
 
