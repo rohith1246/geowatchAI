@@ -7,6 +7,11 @@ from flask import Flask, render_template, request, jsonify, send_file, make_resp
 from config import Config
 from models import db, Location, AnalysisRecord, AnalysisEvidence
 from services.evidence_engine import generate_evidence
+from services.earth_replay import generate_timeline
+from services.earth_biography import generate_biography
+from services.future_projection import generate_projection
+import json
+import traceback
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -14,9 +19,31 @@ app.config.from_object(Config)
 # Initialize database
 db.init_app(app)
 
-# Ensure tables are created
+# Ensure tables are created and columns are dynamically added if missing (schema evolution)
 with app.app_context():
     db.create_all()
+    try:
+        # Check if columns exist in analysis_records
+        engine = db.engine
+        from sqlalchemy import inspect
+        inspector = inspect(engine)
+        columns = [c['name'] for c in inspector.get_columns('analysis_records')]
+        
+        # New columns for V4
+        v4_columns = {
+            'biography': 'TEXT',
+            'story_json': 'TEXT',
+            'future_outlook': 'TEXT',
+            'timeline_json': 'TEXT'
+        }
+        
+        for col_name, col_type in v4_columns.items():
+            if col_name not in columns:
+                app.logger.info(f"Upgrading database: adding column {col_name} to analysis_records")
+                db.session.execute(db.text(f"ALTER TABLE analysis_records ADD COLUMN {col_name} {col_type}"))
+                db.session.commit()
+    except Exception as upgrade_err:
+        app.logger.error(f"Database schema auto-upgrade failed: {upgrade_err}")
 
 # Setup Gemini API client if key is present
 HAS_GEMINI = False
@@ -317,6 +344,55 @@ def analyze_temporal_change():
         # Generate high-fidelity mock change report
         report_text = generate_mock_change_report(name, lat, lon, start_date, end_date, metrics, confidence_score, confidence_level, evidence_bullets)
 
+    # 2.5 Run V4 Biography, Replay Timeline, and Future Projection Engines
+    try:
+        timeline_events = generate_timeline(lat, lon, start_date, end_date, metrics)
+        biography_text = generate_biography(name, lat, lon, start_date, end_date, evidence, confidence_score, gemini_client)
+        projection_text = generate_projection(name, lat, lon, metrics, gemini_client)
+        
+        # Compile Story Cards metadata
+        story_cards = [
+            {
+                'id': 'road-story',
+                'metric': 'Road Expansion',
+                'value': metrics['road_growth'],
+                'source': next((ev['source'] for ev in evidence if 'road' in ev['metric'].lower()), 'OpenStreetMap'),
+                'confidence': next((ev['confidence'] for ev in evidence if 'road' in ev['metric'].lower()), confidence_score),
+                'calculation': next((ev['calculation'] for ev in evidence if 'road' in ev['metric'].lower()), ''),
+                'summary': f"Road infrastructure density expanded by {metrics['road_growth']}. This suggests increased regional accessibility, driving further local commercial and transit zoning."
+            },
+            {
+                'id': 'urban-story',
+                'metric': 'Urban Growth',
+                'value': metrics['urban_growth'],
+                'source': next((ev['source'] for ev in evidence if 'urban' in ev['metric'].lower() or 'built' in ev['metric'].lower()), 'OpenStreetMap'),
+                'confidence': next((ev['confidence'] for ev in evidence if 'urban' in ev['metric'].lower() or 'built' in ev['metric'].lower()), confidence_score),
+                'calculation': next((ev['calculation'] for ev in evidence if 'urban' in ev['metric'].lower() or 'built' in ev['metric'].lower()), ''),
+                'summary': f"Built-up area footprint grew by {metrics['urban_growth']}. The expansion indicates high land conversion rates, converting natural/brush boundaries into asphalt and concrete."
+            },
+            {
+                'id': 'water-story',
+                'metric': 'Water Stress',
+                'value': metrics['water_change'],
+                'source': next((ev['source'] for ev in evidence if 'water' in ev['metric'].lower() or 'ndwi' in ev['metric'].lower()), 'Open-Meteo & Landsat'),
+                'confidence': next((ev['confidence'] for ev in evidence if 'water' in ev['metric'].lower() or 'ndwi' in ev['metric'].lower()), confidence_score),
+                'calculation': next((ev['calculation'] for ev in evidence if 'water' in ev['metric'].lower() or 'ndwi' in ev['metric'].lower()), ''),
+                'summary': f"Water body surface area shifted by {metrics['water_change']}. Drainage channels and surface reservoirs indicate changing local hydrological parameters."
+            },
+            {
+                'id': 'veg-story',
+                'metric': 'Vegetation Shift',
+                'value': metrics['vegetation_change'],
+                'source': next((ev['source'] for ev in evidence if 'veg' in ev['metric'].lower() or 'ndvi' in ev['metric'].lower()), 'Copernicus & Landsat'),
+                'confidence': next((ev['confidence'] for ev in evidence if 'veg' in ev['metric'].lower() or 'ndvi' in ev['metric'].lower()), confidence_score),
+                'calculation': next((ev['calculation'] for ev in evidence if 'veg' in ev['metric'].lower() or 'ndvi' in ev['metric'].lower()), ''),
+                'summary': f"Vegetation canopy reflectance delta measured at {metrics['vegetation_change']}. This represents alterations in biomass density, suggesting canopy thinning or urban clearing."
+            }
+        ]
+    except Exception as v4_err:
+        app.logger.error(f"V4 Models processing failed: {v4_err}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Temporal exploration processing failed: {v4_err}'}), 500
+
     # 3. Store record & associated evidence in database
     try:
         new_record = AnalysisRecord(
@@ -330,7 +406,12 @@ def analyze_temporal_change():
             water_change=metrics['water_change'],
             urban_growth=metrics['urban_growth'],
             risk_score=metrics['risk_score'],
-            report=report_text
+            report=report_text,
+            # V4 Fields
+            biography=biography_text,
+            story_json=json.dumps(story_cards),
+            future_outlook=projection_text,
+            timeline_json=json.dumps(timeline_events)
         )
         db.session.add(new_record)
         db.session.commit() # Save first to generate new_record.id
@@ -356,8 +437,8 @@ def analyze_temporal_change():
         }), 201
     except Exception as e:
         db.session.rollback()
-        app.logger.error(f"Database error while saving analysis: {e}")
-        return jsonify({'error': 'Failed to save analysis record.'}), 500
+        app.logger.error(f"Database error while saving analysis: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': f'Failed to save analysis record: {str(e)}'}), 500
 
 @app.route('/api/analysis-records', methods=['GET'])
 def get_analysis_records():
@@ -693,7 +774,29 @@ Analysis of multi-spectral satellite imagery archives from 2016 to 2026 reveals 
 * **Immediate Threat Matrix**: {alert}
 * **Vulnerability Assessment**: High exposure to climate variance. Recommended mitigation: Implement green infrastructural buffers and enhance hydrological flood protection designs.
 """
-    return report
+@app.route('/report/<int:rec_id>', methods=['GET'])
+def public_report(rec_id):
+    """Render the public landing page for a shareable report."""
+    try:
+        record = AnalysisRecord.query.get(rec_id)
+        if not record:
+            return "Report not found.", 404
+        return render_template('report.html', record=record)
+    except Exception as e:
+        app.logger.error(f"Error loading public report page: {e}")
+        return "Internal Server Error", 500
+
+@app.route('/api/public-report/<int:rec_id>', methods=['GET'])
+def api_public_report(rec_id):
+    """API endpoint to retrieve public report data (without login)."""
+    try:
+        record = AnalysisRecord.query.get(rec_id)
+        if not record:
+            return jsonify({'error': 'Record not found.'}), 404
+        return jsonify(record.to_dict())
+    except Exception as e:
+        app.logger.error(f"Public API error: {e}")
+        return jsonify({'error': 'Internal server error.'}), 500
 
 if __name__ == '__main__':
     # Run the local development server

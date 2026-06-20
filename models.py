@@ -39,6 +39,13 @@ class AnalysisRecord(db.Model):
     urban_growth = db.Column(db.Text, nullable=False)
     risk_score = db.Column(db.String(50), nullable=False)
     report = db.Column(db.Text, nullable=False)
+    
+    # New V4 Visual Exploration Columns
+    biography = db.Column(db.Text, nullable=True)
+    story_json = db.Column(db.Text, nullable=True)
+    future_outlook = db.Column(db.Text, nullable=True)
+    timeline_json = db.Column(db.Text, nullable=True)
+    
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationship to evidences with cascade delete
@@ -46,6 +53,15 @@ class AnalysisRecord(db.Model):
 
     def to_dict(self):
         """Serializes the analysis record to a dictionary."""
+        import json
+        def safe_json_load(field_val):
+            if not field_val:
+                return None
+            try:
+                return json.loads(field_val)
+            except Exception:
+                return field_val
+
         return {
             'id': self.id,
             'location_name': self.location_name,
@@ -61,6 +77,10 @@ class AnalysisRecord(db.Model):
                 'risk_score': self.risk_score
             },
             'report': self.report,
+            'biography': self.biography,
+            'story_json': safe_json_load(self.story_json),
+            'future_outlook': self.future_outlook,
+            'timeline_json': safe_json_load(self.timeline_json),
             'created_at': self.created_at.isoformat(),
             'evidences': [ev.to_dict() for ev in self.evidences]
         }

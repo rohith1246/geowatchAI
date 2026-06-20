@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnSaveLoc = document.getElementById('btn-save-loc');
     const btnAnalyzeAi = document.getElementById('btn-analyze-ai');
     
-    // GeoWatch v2/v3 Timeline & Metrics Elements
+    // GeoWatch Timeline & Metrics Elements
     const btnCompareTimeline = document.getElementById('btn-compare-timeline');
     const startDateInput = document.getElementById('start-date');
     const endDateInput = document.getElementById('end-date');
@@ -46,6 +46,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const evidencePanel = document.getElementById('evidence-panel');
     const evidenceExplorerList = document.getElementById('evidence-explorer-list');
     const btnCloseTerminal = document.getElementById('btn-close-terminal');
+
+    // GeoWatch v4 Earth Replay, Story Mode & Share Elements
+    const btnShareReport = document.getElementById('btn-share-report');
+    const replayControlsPanel = document.getElementById('replay-controls-panel');
+    const replayYearLabel = document.getElementById('replay-year-label');
+    const replayScrubber = document.getElementById('replay-scrubber');
+    const btnReplayPlay = document.getElementById('btn-replay-play');
+    const btnReplayPrev = document.getElementById('btn-replay-prev');
+    const btnReplayNext = document.getElementById('btn-replay-next');
+    const replaySpeed = document.getElementById('replay-speed');
+
+    const storyPanel = document.getElementById('story-panel');
+    const btnTellStory = document.getElementById('btn-tell-story');
+    const storyBiographyBlock = document.getElementById('story-biography-block');
+    const storyBiographyText = document.getElementById('story-biography-text');
+    const storyCardsBlock = document.getElementById('story-cards-block');
+    const futureOutlookBlock = document.getElementById('future-outlook-block');
+    const futureOutlookText = document.getElementById('future-outlook-text');
     
     // Map State variables
     let mapBefore;
@@ -56,6 +74,21 @@ document.addEventListener('DOMContentLoaded', () => {
     let selectedLocationName = '';
     let searchDebounceTimeout = null;
     let activeRecordId = null;
+
+    // V4 Earth Replay state variables
+    let activeTimelineEvents = [];
+    let isPlaying = false;
+    let currentReplayIndex = 0;
+    let replayInterval = null;
+    let activeStoryCards = [];
+
+    // V4 Demo Hotspots Configurations
+    const demoHotspots = {
+        hyderabad: { lat: 17.3850, lng: 78.4867, name: 'Hyderabad, India', start: '2016-01-01', end: '2026-01-01' },
+        dubai: { lat: 25.2048, lng: 55.2708, name: 'Dubai, UAE', start: '2012-01-01', end: '2026-01-01' },
+        singapore: { lat: 1.3521, lng: 103.8198, name: 'Singapore', start: '2014-01-01', end: '2026-01-01' },
+        bengaluru: { lat: 12.9716, lng: 77.5946, name: 'Bengaluru, India', start: '2016-01-01', end: '2026-01-01' }
+    };
 
     // 1. Initialize Dual Synchronized Maps
     function initMap() {
@@ -75,10 +108,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Define ESRI Satellite base layer for Before
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, USDA, USGS'
         }).addTo(mapBefore);
 
-        // Define ESRI Hybrid borders & places overlay for Before
+        // Define ESRI Hybrid borders overlay for Before
         L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
             attribution: 'Labels &copy; Esri',
             opacity: 0.85
@@ -86,12 +119,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Define ESRI Satellite base layer for After
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            attribution: 'Tiles &copy; Esri'
         }).addTo(mapAfter);
 
-        // Define ESRI Hybrid borders & places overlay for After
+        // Define ESRI Hybrid borders overlay for After
         L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-            attribution: 'Labels &copy; Esri',
             opacity: 0.85
         }).addTo(mapAfter);
 
@@ -477,6 +509,117 @@ document.addEventListener('DOMContentLoaded', () => {
         evidencePanel.style.display = 'block';
     }
 
+    // V4 Earth Replay Step Updater
+    function updateReplayStep(index) {
+        if (!activeTimelineEvents || activeTimelineEvents.length === 0) return;
+
+        currentReplayIndex = index;
+        replayScrubber.value = index;
+
+        const event = activeTimelineEvents[index];
+        replayYearLabel.textContent = event.year;
+
+        // Dynamically update metrics panel values during evolution replay
+        metricVeg.textContent = event.metrics.vegetation_change;
+        metricWater.textContent = event.metrics.water_change;
+        metricRoad.textContent = event.metrics.road_growth;
+        metricUrban.textContent = event.metrics.urban_growth;
+        metricRisk.textContent = event.metrics.risk_score;
+
+        // Calculate progress percentage
+        const ratio = index / (activeTimelineEvents.length - 1);
+
+        // Dynamically fade Before map styling during replay to showcase progression
+        const mapBeforeEl = document.getElementById('map-before');
+        if (mapBeforeEl) {
+            // Grayscale decreases as year approaches the final date
+            const grayVal = Math.max(0, 85 - (ratio * 85));
+            const brightnessVal = 0.85 + (ratio * 0.15);
+            mapBeforeEl.style.filter = `grayscale(${grayVal}%) contrast(1.05) brightness(${brightnessVal})`;
+        }
+
+        // Highlight matching Story Cards in the Change Story Panel
+        const cards = document.querySelectorAll('.story-card-item');
+        cards.forEach((card, idx) => {
+            if (idx === index % cards.length) {
+                card.classList.add('story-card-active');
+            } else {
+                card.classList.remove('story-card-active');
+            }
+        });
+    }
+
+    // V4 Play Timeline Animation
+    function playReplay() {
+        if (activeTimelineEvents.length === 0) return;
+        isPlaying = true;
+        btnReplayPlay.innerHTML = '<i class="fa-solid fa-pause"></i> Pause';
+
+        const speed = parseInt(replaySpeed.value) || 1800;
+        replayInterval = setInterval(() => {
+            let nextIdx = currentReplayIndex + 1;
+            if (nextIdx >= activeTimelineEvents.length) {
+                nextIdx = 0; // loop back
+            }
+            updateReplayStep(nextIdx);
+        }, speed);
+    }
+
+    // V4 Pause Timeline Animation
+    function pauseReplay() {
+        isPlaying = false;
+        btnReplayPlay.innerHTML = '<i class="fa-solid fa-play"></i> Play';
+        if (replayInterval) {
+            clearInterval(replayInterval);
+            replayInterval = null;
+        }
+    }
+
+    // V4 Before / After Story Mode Populator
+    function populateStoryMode(record) {
+        if (!record) {
+            storyPanel.style.display = 'none';
+            return;
+        }
+
+        // Cache V4 elements
+        activeStoryCards = record.story_json || [];
+        activeTimelineEvents = record.timeline_json || [];
+
+        // Configure scrubber range boundaries
+        if (activeTimelineEvents && activeTimelineEvents.length > 0) {
+            replayScrubber.max = activeTimelineEvents.length - 1;
+            replayScrubber.value = 0;
+            currentReplayIndex = 0;
+            replayYearLabel.textContent = activeTimelineEvents[0].year;
+            replayControlsPanel.style.display = 'block';
+        } else {
+            replayControlsPanel.style.display = 'none';
+        }
+
+        // Populate AI Biography narrative
+        if (record.biography) {
+            storyBiographyText.textContent = record.biography;
+        } else {
+            storyBiographyText.textContent = '';
+        }
+
+        // Populate Future Outlook projection
+        if (record.future_outlook) {
+            futureOutlookText.textContent = record.future_outlook;
+        } else {
+            futureOutlookText.textContent = '';
+        }
+
+        // Hide blocks initially (users click Tell Me The Story to open them)
+        storyBiographyBlock.style.display = 'none';
+        storyCardsBlock.style.display = 'none';
+        futureOutlookBlock.style.display = 'none';
+        btnTellStory.style.display = 'block';
+
+        storyPanel.style.display = 'block';
+    }
+
     // 12. AI Analysis Handler (Single Point)
     btnAnalyzeAi.addEventListener('click', () => {
         if (!selectedCoords) return;
@@ -488,7 +631,10 @@ document.addEventListener('DOMContentLoaded', () => {
         terminalActions.style.display = 'none';
         metricsPanel.style.display = 'none';
         evidencePanel.style.display = 'none';
+        storyPanel.style.display = 'none';
+        replayControlsPanel.style.display = 'none';
         activeRecordId = null;
+        pauseReplay();
         terminalLoading.style.display = 'flex';
         
         btnAnalyzeAi.disabled = true;
@@ -526,7 +672,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Show close button
             if (btnCloseTerminal) btnCloseTerminal.style.display = 'block';
             
-            // Scroll terminal content container to the bottom
+            // Scroll terminal content container to the top
             terminalScreen.scrollTop = 0;
             
             // Terminal typewriter accent glow effect
@@ -548,7 +694,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // 13. GeoWatch Timeline Compare Handler (v2 / v3)
+    // 13. GeoWatch Timeline Compare Handler (v2 / v3 / v4)
     btnCompareTimeline.addEventListener('click', () => {
         if (!selectedCoords) return;
         
@@ -567,7 +713,10 @@ document.addEventListener('DOMContentLoaded', () => {
         terminalActions.style.display = 'none';
         metricsPanel.style.display = 'none';
         evidencePanel.style.display = 'none';
+        storyPanel.style.display = 'none';
+        replayControlsPanel.style.display = 'none';
         activeRecordId = null;
+        pauseReplay();
         terminalLoading.style.display = 'flex';
         
         btnCompareTimeline.disabled = true;
@@ -614,6 +763,17 @@ document.addEventListener('DOMContentLoaded', () => {
             activeRecordId = data.id || (data.record ? data.record.id : null);
             if (activeRecordId) {
                 terminalActions.style.display = 'flex';
+            }
+
+            // Populate Before/After Story Mode & Replay Player (v4)
+            if (data.record) {
+                populateStoryMode(data.record);
+                
+                // Automatically kick off Earth Replay evolution animation
+                setTimeout(() => {
+                    updateReplayStep(0);
+                    playReplay();
+                }, 800);
             }
 
             // Render Markdown AI report
@@ -706,6 +866,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 selectedCoords = { lat: rec.latitude, lng: rec.longitude };
                 selectedLocationName = rec.location_name;
 
+                // Stop active replay player
+                pauseReplay();
+
                 // Fly both maps smoothly to the archived location
                 mapBefore.flyTo([rec.latitude, rec.longitude], 12, { animate: true, duration: 1.5 });
                 mapAfter.flyTo([rec.latitude, rec.longitude], 12, { animate: true, duration: 1.5 });
@@ -732,6 +895,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     evidencePanel.style.display = 'none';
                 }
+
+                // Render Before/After Story Mode & Timeline Replay (v4)
+                populateStoryMode(rec);
 
                 // Set active record ID for exports
                 activeRecordId = rec.id;
@@ -808,6 +974,132 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // V4 Share public link click
+    if (btnShareReport) {
+        btnShareReport.addEventListener('click', () => {
+            if (!activeRecordId) return;
+            const shareUrl = `${window.location.origin}/report/${activeRecordId}`;
+            
+            navigator.clipboard.writeText(shareUrl).then(() => {
+                btnShareReport.innerHTML = '<i class="fa-solid fa-check"></i> Copied URL!';
+                setTimeout(() => {
+                    btnShareReport.innerHTML = '<i class="fa-solid fa-share-nodes"></i> Share';
+                }, 2000);
+            }).catch(err => {
+                console.error("Link copy failed:", err);
+                alert("Shareable Link: " + shareUrl);
+            });
+        });
+    }
+
+    // V4 Replay Button Click Events
+    btnReplayPlay.addEventListener('click', () => {
+        if (isPlaying) {
+            pauseReplay();
+        } else {
+            playReplay();
+        }
+    });
+
+    btnReplayPrev.addEventListener('click', () => {
+        pauseReplay();
+        let idx = currentReplayIndex - 1;
+        if (idx < 0) idx = activeTimelineEvents.length - 1;
+        updateReplayStep(idx);
+    });
+
+    btnReplayNext.addEventListener('click', () => {
+        pauseReplay();
+        let idx = currentReplayIndex + 1;
+        if (idx >= activeTimelineEvents.length) idx = 0;
+        updateReplayStep(idx);
+    });
+
+    replayScrubber.addEventListener('input', () => {
+        pauseReplay();
+        updateReplayStep(parseInt(replayScrubber.value));
+    });
+
+    replaySpeed.addEventListener('change', () => {
+        if (isPlaying) {
+            pauseReplay();
+            playReplay();
+        }
+    });
+
+    // V4 Before / After Story Mode Reveal Click
+    btnTellStory.addEventListener('click', () => {
+        btnTellStory.style.display = 'none';
+
+        // Show Earth Biography narrative with slide animation
+        storyBiographyBlock.style.display = 'block';
+        storyBiographyBlock.style.animation = 'slideInUp 0.4s ease forwards';
+
+        // Render dynamic Change Story Cards
+        storyCardsBlock.innerHTML = '';
+        if (activeStoryCards && activeStoryCards.length > 0) {
+            activeStoryCards.forEach((card, idx) => {
+                const cardDiv = document.createElement('div');
+                cardDiv.className = 'evidence-card story-card-item story-card-animate';
+                cardDiv.style.animationDelay = `${idx * 0.15}s`;
+                cardDiv.style.borderLeft = '3px solid var(--accent)';
+                
+                cardDiv.innerHTML = `
+                    <div class="ev-header">
+                        <span class="ev-metric-name" style="color: var(--accent);"><i class="fa-solid fa-rectangle-ad"></i> ${card.metric}</span>
+                        <span class="ev-value">${card.value}</span>
+                    </div>
+                    <p style="font-size: 0.76rem; color: var(--text-muted); line-height: 1.4; margin-top: 4px;">${card.summary}</p>
+                    <div style="font-size: 0.65rem; color: var(--text-dim); display: flex; justify-content: space-between; margin-top: 6px; border-top: 1px dashed rgba(255,255,255,0.03); padding-top: 4px;">
+                        <span>Source: ${card.source}</span>
+                        <span>Confidence: ${card.confidence}%</span>
+                    </div>
+                `;
+                storyCardsBlock.appendChild(cardDiv);
+            });
+            storyCardsBlock.style.display = 'flex';
+        }
+
+        // Show 2030 Future Outlook card
+        if (futureOutlookText.textContent) {
+            futureOutlookBlock.style.display = 'block';
+            futureOutlookBlock.style.animation = 'slideInUp 0.6s ease forwards';
+        }
+
+        // Highlight card matching current step
+        updateReplayStep(currentReplayIndex);
+    });
+
+    // V4 Featured Location click binders (Demo Experience)
+    document.querySelectorAll('.demo-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const key = btn.getAttribute('data-loc');
+            const spot = demoHotspots[key];
+            if (!spot) return;
+
+            // Clear search box
+            clearSearchState();
+
+            selectedCoords = { lat: spot.lat, lng: spot.lng };
+            selectedLocationName = spot.name;
+
+            // Fly both maps smoothly to coordinates
+            mapBefore.flyTo([spot.lat, spot.lng], 12, { animate: true, duration: 1.8 });
+            mapAfter.flyTo([spot.lat, spot.lng], 12, { animate: true, duration: 1.8 });
+
+            // Prefill timeline date fields
+            startDateInput.value = spot.start;
+            endDateInput.value = spot.end;
+
+            // Update Coordinates UI selection indicator
+            updateSelectedCoordinatesUI(spot.lat, spot.lng, spot.name);
+            placeMarker(spot.lat, spot.lng, spot.name);
+
+            // Automatically click the Compare Timeline button to trigger V4 Replay Generation!
+            btnCompareTimeline.click();
+        });
+    });
+
     // Close terminal button handler
     if (btnCloseTerminal) {
         btnCloseTerminal.addEventListener('click', () => {
@@ -818,6 +1110,17 @@ document.addEventListener('DOMContentLoaded', () => {
             terminalActions.style.display = 'none';
             btnCloseTerminal.style.display = 'none';
             activeRecordId = null;
+            
+            // Close Replay and Story Panels
+            pauseReplay();
+            replayControlsPanel.style.display = 'none';
+            storyPanel.style.display = 'none';
+            
+            // Reset Before Map filter grayscale
+            const mapBeforeEl = document.getElementById('map-before');
+            if (mapBeforeEl) {
+                mapBeforeEl.style.filter = `grayscale(85%) contrast(1.05) brightness(0.85)`;
+            }
         });
     }
 
@@ -825,4 +1128,13 @@ document.addEventListener('DOMContentLoaded', () => {
     initMap();
     loadSavedLocations();
     loadArchivedReports();
+
+    // V4 Demo Experience: Auto-trigger Dubai on first load if sandbox is empty
+    setTimeout(() => {
+        // If there's no coordinates set and user is idle, trigger a default map view focus
+        if (!selectedCoords) {
+            mapBefore.setView([25.2048, 55.2708], 3);
+            mapAfter.setView([25.2048, 55.2708], 3);
+        }
+    }, 1500);
 });

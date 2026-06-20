@@ -1,0 +1,549 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<!-- Sidebar / Control Panel -->
+<aside class="sidebar">
+    <!-- Brand / Header -->
+    <header class="brand-header">
+        <div class="logo-area">
+            <i class="fa-solid fa-satellite-dish brand-icon"></i>
+            <h1>GeoWatch <span class="highlight-text">Public</span></h1>
+        </div>
+        <p class="tagline">Public Earth Change Report</p>
+    </header>
+
+    <!-- Report Details Hero -->
+    <section class="control-group header-group">
+        <div class="panel-header">
+            <i class="fa-solid fa-location-dot icon-accent"></i>
+            <h3 style="font-size: 1.1rem; color: var(--accent);">{{ record.location_name }}</h3>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
+            <div>Coordinates: <span style="font-family: var(--font-mono); color: var(--text-primary);">{{ "%.5f"|format(record.latitude) }}°, {{ "%.5f"|format(record.longitude) }}°</span></div>
+            <div>Timeline: <span style="font-family: var(--font-mono); color: var(--text-primary);">{{ record.start_date }} ➔ {{ record.end_date }}</span></div>
+            <div>Generated: <span style="font-family: var(--font-mono); color: var(--text-primary);">{{ record.created_at.strftime('%Y-%m-%d %H:%M') }} UTC</span></div>
+        </div>
+    </section>
+
+    <!-- Replay Player Panel -->
+    {% if record.timeline_json %}
+    <section class="control-group timeline-group" id="replay-panel">
+        <div class="panel-header">
+            <i class="fa-solid fa-circle-play icon-accent"></i>
+            <h3>Earth Replay Player</h3>
+        </div>
+        
+        <div class="replay-controls" style="margin-top: 8px;">
+            <div class="replay-status-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span class="date-label" style="color: var(--accent);"><i class="fa-solid fa-rotate fa-spin"></i> Replaying Evolution</span>
+                <span id="replay-year-label" style="font-family: var(--font-mono); font-weight: bold; color: var(--text-primary); font-size: 0.95rem; background: rgba(0,240,255,0.1); padding: 2px 8px; border-radius: 4px; border: 1px solid var(--accent-glow);">{{ record.start_date[:4] }}</span>
+            </div>
+            
+            <div class="scrubber-row" style="margin-bottom: 12px;">
+                <input type="range" id="replay-scrubber" min="0" max="0" value="0" style="width: 100%; accent-color: var(--accent); cursor: pointer; background: var(--bg-primary);">
+            </div>
+            
+            <div class="player-button-row" style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                <div style="display: flex; gap: 4px;">
+                    <button id="btn-replay-prev" class="export-btn" title="Previous event" style="padding: 6px 10px; background: rgba(255,255,255,0.02);"><i class="fa-solid fa-backward"></i></button>
+                    <button id="btn-replay-play" class="btn btn-primary" style="padding: 6px 12px; flex: none; font-size: 0.75rem;"><i class="fa-solid fa-play"></i> Play</button>
+                    <button id="btn-replay-next" class="export-btn" title="Next event" style="padding: 6px 10px; background: rgba(255,255,255,0.02);"><i class="fa-solid fa-forward"></i></button>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span class="date-label" style="font-size: 0.65rem;">Speed:</span>
+                    <select id="replay-speed" style="background: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; font-size: 0.7rem; padding: 4px; outline: none; cursor: pointer;">
+                        <option value="3000">1.0x</option>
+                        <option value="1800" selected>1.5x</option>
+                        <option value="1000">2.0x</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- Narrative Earth Biography -->
+    {% if record.biography %}
+    <section class="control-group biography-group">
+        <div class="panel-header">
+            <i class="fa-solid fa-book-open icon-accent"></i>
+            <h3>AI Earth Biography</h3>
+        </div>
+        <p style="font-size: 0.84rem; line-height: 1.5; color: #cbd5e1; border-left: 2px solid var(--accent); padding-left: 12px; font-style: italic;">
+            {{ record.biography }}
+        </p>
+    </section>
+    {% endif %}
+
+    <!-- Telemetry Metrics -->
+    <section class="control-group metrics-group">
+        <div class="panel-header">
+            <i class="fa-solid fa-chart-simple icon-accent"></i>
+            <h3>Temporal Metrics</h3>
+        </div>
+        <div class="metrics-grid">
+            <div class="metric-card veg-card">
+                <div class="m-card-header"><i class="fa-solid fa-tree text-green"></i> Vegetation</div>
+                <div class="m-value">{{ record.vegetation_change }}</div>
+            </div>
+            <div class="metric-card water-card">
+                <div class="m-card-header"><i class="fa-solid fa-droplet text-blue"></i> Water Bodies</div>
+                <div class="m-value">{{ record.water_change }}</div>
+            </div>
+            <div class="metric-card road-card">
+                <div class="m-card-header"><i class="fa-solid fa-road text-slate"></i> Road Grid</div>
+                <div class="m-value">{{ record.road_growth }}</div>
+            </div>
+            <div class="metric-card urban-card">
+                <div class="m-card-header"><i class="fa-solid fa-city text-cyan"></i> Urban Growth</div>
+                <div class="m-value">{{ record.urban_growth }}</div>
+            </div>
+            <div class="metric-card risk-card">
+                <div class="m-card-header"><i class="fa-solid fa-triangle-exclamation text-orange"></i> AI Ecological Risk</div>
+                <div class="m-value">{{ record.risk_score }}</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Visual Story Cards -->
+    {% if record.story_json %}
+    <section class="control-group story-group">
+        <div class="panel-header border-bottom" style="padding-bottom: 8px; margin-bottom: 8px;">
+            <i class="fa-solid fa-rectangle-list icon-accent"></i>
+            <h3>Change Story Cards</h3>
+        </div>
+        <div class="story-cards-container" id="report-story-cards" style="display: flex; flex-direction: column; gap: 10px;">
+            <!-- Rendered in JS from story_json -->
+        </div>
+    </section>
+    {% endif %}
+
+    <!-- Future Projections -->
+    {% if record.future_outlook %}
+    <section class="control-group projection-group">
+        <div class="panel-header">
+            <i class="fa-solid fa-forward icon-accent text-glow-cyan"></i>
+            <h3>2030 Future Outlook</h3>
+        </div>
+        <p style="font-size: 0.8rem; line-height: 1.4; color: #94a3b8; background: rgba(168, 85, 247, 0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.15);">
+            {{ record.future_outlook }}
+        </p>
+    </section>
+    {% endif %}
+
+    <!-- Evidence Logs -->
+    <section class="control-group evidence-group">
+        <div class="panel-header">
+            <i class="fa-solid fa-shield-halved icon-accent"></i>
+            <h3>Audit Evidence Trails</h3>
+        </div>
+        <div class="evidence-list">
+            {% for ev in record.evidences %}
+            <div class="evidence-card">
+                <div class="ev-header">
+                    <span class="ev-metric-name">{{ ev.metric_name }}</span>
+                    <span class="ev-value">{{ ev.metric_value }}</span>
+                </div>
+                <div class="ev-details">
+                    <div class="ev-detail-item">
+                        <span class="ev-label">Source</span>
+                        <span class="ev-text">{{ ev.source_name }}</span>
+                    </div>
+                    <div class="ev-detail-item">
+                        <span class="ev-label">Confidence</span>
+                        <div>
+                            <span class="badge-conf {% if ev.confidence >= 90 %}conf-very-high{% elif ev.confidence >= 75 %}conf-high{% elif ev.confidence >= 50 %}conf-medium{% else %}conf-low{% endif %}">
+                                {{ ev.confidence }}%
+                            </span>
+                        </div>
+                    </div>
+                    <div class="ev-detail-item ev-calc">
+                        <span class="ev-label">Calculation Method</span>
+                        <span class="ev-text">{{ ev.calculation_method }}</span>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <!-- Action & Share options -->
+    <section class="control-group action-group">
+        <div class="panel-header border-bottom" style="padding-bottom: 8px; margin-bottom: 8px;">
+            <i class="fa-solid fa-share-nodes icon-accent"></i>
+            <h3>Share & Export</h3>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; gap: 8px;">
+                <button id="btn-share-link" class="btn btn-secondary" style="font-size: 0.76rem;">
+                    <i class="fa-regular fa-copy"></i> Copy Link
+                </button>
+                <button id="btn-share-card" class="btn btn-primary" style="font-size: 0.76rem;">
+                    <i class="fa-solid fa-image"></i> Social Card
+                </button>
+            </div>
+            
+            <div class="action-buttons" style="border-top: 1px dashed var(--border-color); padding-top: 8px; margin-top: 4px;">
+                <a href="/api/analysis-records/{{ record.id }}/export/pdf" class="export-btn" style="text-decoration: none; justify-content: center;"><i class="fa-solid fa-file-pdf"></i> PDF</a>
+                <a href="/api/analysis-records/{{ record.id }}/export/csv" class="export-btn" style="text-decoration: none; justify-content: center;"><i class="fa-solid fa-file-csv"></i> CSV</a>
+                <a href="/api/analysis-records/{{ record.id }}/export/json" class="export-btn" style="text-decoration: none; justify-content: center;"><i class="fa-solid fa-file-code"></i> JSON</a>
+            </div>
+        </div>
+    </section>
+
+    <div style="padding: 10px 0; text-align: center;">
+        <a href="/" style="color: var(--accent); text-decoration: none; font-size: 0.8rem; font-family: var(--font-heading);"><i class="fa-solid fa-arrow-left-long"></i> Open Dashboard</a>
+    </div>
+</aside>
+
+<!-- Full-screen Dual Map Viewports -->
+<main class="map-container dual-maps">
+    <div class="map-pane-wrapper">
+        <div class="map-pane-label left-label">Before (Start Date)</div>
+        <div id="map-before" class="map-viewport"></div>
+    </div>
+    <div class="map-pane-wrapper">
+        <div class="map-pane-label right-label">After (End Date)</div>
+        <div id="map-after" class="map-viewport"></div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<!-- Marked.js for rendering markdown report descriptions if needed -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. Initialize Map Coordinates
+    const recordLat = {{ record.latitude }};
+    const recordLng = {{ record.longitude }};
+    const locationName = "{{ record.location_name }}";
+    
+    let mapBefore = L.map('map-before', {
+        zoomControl: true,
+        maxZoom: 18,
+        minZoom: 2
+    }).setView([recordLat, recordLng], 12);
+
+    let mapAfter = L.map('map-after', {
+        zoomControl: true,
+        maxZoom: 18,
+        minZoom: 2
+    }).setView([recordLat, recordLng], 12);
+
+    // Satellite imagery layers
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, USDA, USGS'
+    }).addTo(mapBefore);
+
+    L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Labels &copy; Esri',
+        opacity: 0.85
+    }).addTo(mapBefore);
+
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri'
+    }).addTo(mapAfter);
+
+    L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+        opacity: 0.85
+    }).addTo(mapAfter);
+
+    // Place Markers
+    L.marker([recordLat, recordLng]).addTo(mapBefore).bindPopup(`<b>{{ record.location_name }}</b><br>Lat: ${recordLat.toFixed(4)}<br>Lng: ${recordLng.toFixed(4)}`).openPopup();
+    L.marker([recordLat, recordLng]).addTo(mapAfter).bindPopup(`<b>{{ record.location_name }}</b>`);
+
+    // Synchronize Map Viewports
+    let isSyncing = false;
+    mapBefore.on('move', () => {
+        if (!isSyncing) {
+            isSyncing = true;
+            mapAfter.setView(mapBefore.getCenter(), mapBefore.getZoom(), { animate: false });
+            isSyncing = false;
+        }
+    });
+
+    mapAfter.on('move', () => {
+        if (!isSyncing) {
+            isSyncing = true;
+            mapBefore.setView(mapAfter.getCenter(), mapAfter.getZoom(), { animate: false });
+            isSyncing = false;
+        }
+    });
+
+    // 2. Load Change Story Cards from story_json
+    const storyData = {{ record.story_json|safe if record.story_json else '[]' }};
+    const storyContainer = document.getElementById('report-story-cards');
+    if (storyContainer && storyData.length > 0) {
+        storyContainer.innerHTML = '';
+        storyData.forEach(card => {
+            const div = document.createElement('div');
+            div.className = 'evidence-card';
+            div.style.borderLeft = '3px solid var(--accent)';
+            div.innerHTML = `
+                <div class="ev-header">
+                    <span class="ev-metric-name" style="color: var(--accent);"><i class="fa-solid fa-circle-info"></i> ${card.metric}</span>
+                    <span class="ev-value">${card.value}</span>
+                </div>
+                <p style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; margin-top: 4px;">${card.summary}</p>
+                <div style="font-size: 0.65rem; color: var(--text-dim); display: flex; justify-content: space-between; margin-top: 6px; border-top: 1px dashed rgba(255,255,255,0.03); padding-top: 4px;">
+                    <span>Source: ${card.source}</span>
+                    <span>Confidence: ${card.confidence}%</span>
+                </div>
+            `;
+            storyContainer.appendChild(div);
+        });
+    }
+
+    // 3. Load Replay Data
+    const timelineData = {{ record.timeline_json|safe if record.timeline_json else '[]' }};
+    
+    // Wire up Replay Player if data exists
+    if (timelineData.length > 0) {
+        const scrubber = document.getElementById('replay-scrubber');
+        const playBtn = document.getElementById('btn-replay-play');
+        const prevBtn = document.getElementById('btn-replay-prev');
+        const nextBtn = document.getElementById('btn-replay-next');
+        const speedSelect = document.getElementById('replay-speed');
+        const yearLabel = document.getElementById('replay-year-label');
+        
+        scrubber.max = timelineData.length - 1;
+        scrubber.value = 0;
+        
+        let replayInterval = null;
+        let isPlaying = false;
+        let currentIndex = 0;
+        
+        function updateReplayStep(index) {
+            currentIndex = index;
+            scrubber.value = index;
+            const event = timelineData[index];
+            yearLabel.textContent = event.year;
+            
+            // Highlight matching story cards if applicable
+            // For report page, update labels and metrics cards dynamically
+            const elements = document.getElementsByClassName('metric-card');
+            const yearsRange = {{ record.end_date[:4] }} - {{ record.start_date[:4] }};
+            const ratio = (event.year - {{ record.start_date[:4] }}) / (yearsRange || 1);
+            
+            // Dynamically fade Before map styling during replay to showcase progression
+            const mapBeforeEl = document.getElementById('map-before');
+            if (mapBeforeEl) {
+                // Grayscale decreases as year approaches the final date
+                const grayVal = Math.max(0, 85 - (ratio * 85));
+                const brightnessVal = 0.85 + (ratio * 0.15);
+                mapBeforeEl.style.filter = `grayscale(${grayVal}%) contrast(1.05) brightness(${brightnessVal})`;
+            }
+        }
+        
+        function play() {
+            isPlaying = true;
+            playBtn.innerHTML = '<i class="fa-solid fa-pause"></i> Pause';
+            
+            replayInterval = setInterval(() => {
+                let nextIndex = currentIndex + 1;
+                if (nextIndex >= timelineData.length) {
+                    nextIndex = 0; // Loop back
+                }
+                updateReplayStep(nextIndex);
+            }, parseInt(speedSelect.value));
+        }
+        
+        function pause() {
+            isPlaying = false;
+            playBtn.innerHTML = '<i class="fa-solid fa-play"></i> Play';
+            clearInterval(replayInterval);
+        }
+        
+        playBtn.addEventListener('click', () => {
+            if (isPlaying) {
+                pause();
+            } else {
+                play();
+            }
+        });
+        
+        prevBtn.addEventListener('click', () => {
+            pause();
+            let idx = currentIndex - 1;
+            if (idx < 0) idx = timelineData.length - 1;
+            updateReplayStep(idx);
+        });
+        
+        nextBtn.addEventListener('click', () => {
+            pause();
+            let idx = currentIndex + 1;
+            if (idx >= timelineData.length) idx = 0;
+            updateReplayStep(idx);
+        });
+        
+        scrubber.addEventListener('input', () => {
+            pause();
+            updateReplayStep(parseInt(scrubber.value));
+        });
+        
+        speedSelect.addEventListener('change', () => {
+            if (isPlaying) {
+                pause();
+                play();
+            }
+        });
+        
+        updateReplayStep(0);
+    }
+
+    // 4. Copy shareable link
+    const copyLinkBtn = document.getElementById('btn-share-link');
+    if (copyLinkBtn) {
+        copyLinkBtn.addEventListener('click', () => {
+            const url = window.location.href;
+            navigator.clipboard.writeText(url).then(() => {
+                copyLinkBtn.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
+                setTimeout(() => {
+                    copyLinkBtn.innerHTML = '<i class="fa-regular fa-copy"></i> Copy Link';
+                }, 2000);
+            }).catch(err => {
+                console.error("Could not copy:", err);
+                alert("Report URL: " + url);
+            });
+        });
+    }
+
+    // 5. Canvas Snapshot Social Card Generation (Feature 9)
+    const shareCardBtn = document.getElementById('btn-share-card');
+    if (shareCardBtn) {
+        shareCardBtn.addEventListener('click', () => {
+            shareCardBtn.disabled = true;
+            shareCardBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Rendering...';
+            
+            // Create off-screen canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = 1200;
+            canvas.height = 630;
+            const ctx = canvas.getContext('2d');
+            
+            // Draw background premium gradient
+            const grad = ctx.createLinearGradient(0, 0, 1200, 630);
+            grad.addColorStop(0, '#080b11');
+            grad.addColorStop(1, '#161e2f');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 1200, 630);
+            
+            // Draw border glowing lines
+            ctx.strokeStyle = '#00f0ff';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(20, 20, 1160, 590);
+            
+            // Header text
+            ctx.fillStyle = '#00f0ff';
+            ctx.font = '800 56px Outfit, sans-serif';
+            ctx.fillText('GeoWatch AI', 60, 100);
+            
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '300 24px Inter, sans-serif';
+            ctx.fillText('Watch Earth Evolve • Social Share Card', 420, 95);
+            
+            // Horizontal line separator
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(60, 140);
+            ctx.lineTo(1140, 140);
+            ctx.stroke();
+            
+            // Location information
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 44px Outfit, sans-serif';
+            ctx.fillText(locationName, 60, 210);
+            
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '22px Inter, sans-serif';
+            ctx.fillText(`Latitude: ${recordLat.toFixed(5)}°  |  Longitude: ${recordLng.toFixed(5)}°`, 60, 260);
+            
+            // Date range tag
+            ctx.fillStyle = '#a855f7';
+            ctx.fillRect(60, 290, 320, 48);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 20px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('{{ record.start_date[:4] }} ➔ {{ record.end_date[:4] }} EVOLUTION', 220, 322);
+            ctx.textAlign = 'left';
+            
+            // Draw metrics grids
+            const metrics = [
+                { label: 'VEGETATION SHIFT', val: '{{ record.vegetation_change }}', color: '#10b981' },
+                { label: 'WATER BODIES', val: '{{ record.water_change }}', color: '#3b82f6' },
+                { label: 'ROAD GRID', val: '{{ record.road_growth }}', color: '#94a3b8' },
+                { label: 'URBAN GROWTH', val: '{{ record.urban_growth }}', color: '#00f0ff' }
+            ];
+            
+            // Metrics boxes
+            metrics.forEach((m, idx) => {
+                const x = 60 + (idx * 265);
+                const y = 380;
+                
+                // Draw card background
+                ctx.fillStyle = '#0f1420';
+                ctx.fillRect(x, y, 245, 160);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(x, y, 245, 160);
+                
+                // Card header
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = 'bold 14px Inter, sans-serif';
+                ctx.fillText(m.label, x + 20, y + 35);
+                
+                // Card value
+                ctx.fillStyle = m.color;
+                ctx.font = 'bold 36px Outfit, sans-serif';
+                ctx.fillText(m.val, x + 20, y + 90);
+                
+                // Indicator
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+                ctx.fillRect(x + 20, y + 115, 205, 25);
+                ctx.fillStyle = '#64748b';
+                ctx.font = '12px Inter, sans-serif';
+                ctx.fillText('Verified evidence logged', x + 30, y + 132);
+            });
+            
+            // Draw confidence badge at top right
+            ctx.fillStyle = '#0f1420';
+            ctx.fillRect(880, 180, 260, 130);
+            ctx.strokeStyle = 'rgba(0, 240, 255, 0.2)';
+            ctx.strokeRect(880, 180, 260, 130);
+            
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = 'bold 14px Inter, sans-serif';
+            ctx.fillText('DATA CONFIDENCE', 905, 215);
+            
+            ctx.fillStyle = '#00f0ff';
+            ctx.font = 'bold 54px Outfit, sans-serif';
+            ctx.fillText('{{ record.risk_score.split("(")[0].strip() }}', 905, 275);
+            
+            // Footer copyright
+            ctx.fillStyle = '#64748b';
+            ctx.font = '14px Inter, sans-serif';
+            ctx.fillText('Generated by GeoWatch AI Engine • Evidence-backed Planetary Intelligence Platform', 60, 580);
+            
+            // Create download link
+            setTimeout(() => {
+                const link = document.createElement('a');
+                link.download = `geowatch-share-${locationName.toLowerCase().replace(/[^a-z0-9]/g, '-')}.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+                
+                // Reset button
+                shareCardBtn.innerHTML = '<i class="fa-solid fa-check"></i> Exported!';
+                setTimeout(() => {
+                    shareCardBtn.disabled = false;
+                    shareCardBtn.innerHTML = '<i class="fa-solid fa-image"></i> Social Card';
+                }, 2000);
+            }, 500);
+        });
+    }
+});
+</script>
+{% endblock %}

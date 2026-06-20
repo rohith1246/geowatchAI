@@ -13,6 +13,19 @@
         <p class="tagline">Ask AI what changed anywhere on Earth</p>
     </header>
 
+    <!-- V4 Demo Featured Hotspots Section -->
+    <section class="control-group demo-group">
+        <label class="section-label">
+            <i class="fa-solid fa-wand-magic-sparkles text-cyan"></i> Featured hotspots (Watch Evolution)
+        </label>
+        <div class="demo-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <button class="export-btn demo-btn" data-loc="hyderabad" style="padding: 8px; justify-content: center; font-size: 0.76rem;"><i class="fa-solid fa-city"></i> Hyderabad</button>
+            <button class="export-btn demo-btn" data-loc="dubai" style="padding: 8px; justify-content: center; font-size: 0.76rem;"><i class="fa-solid fa-hotel"></i> Dubai</button>
+            <button class="export-btn demo-btn" data-loc="singapore" style="padding: 8px; justify-content: center; font-size: 0.76rem;"><i class="fa-solid fa-tree-city"></i> Singapore</button>
+            <button class="export-btn demo-btn" data-loc="bengaluru" style="padding: 8px; justify-content: center; font-size: 0.76rem;"><i class="fa-solid fa-laptop-code"></i> Bengaluru</button>
+        </div>
+    </section>
+
     <!-- Search Section -->
     <section class="control-group search-group">
         <label for="location-search" class="section-label">
@@ -56,12 +69,12 @@
                 <i class="fa-regular fa-bookmark"></i> Save Location
             </button>
             <button id="btn-analyze-ai" class="btn btn-secondary" disabled>
-                <i class="fa-solid fa-wand-magic-sparkles"></i> Ask AI (Single)
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Ask AI Changes
             </button>
         </div>
     </section>
 
-    <!-- GeoWatch Timeline Panel (v2) -->
+    <!-- GeoWatch Timeline Panel (v2/v4) -->
     <section class="control-group timeline-group" id="timeline-panel">
         <div class="panel-header">
             <i class="fa-solid fa-calendar-days icon-accent"></i>
@@ -81,6 +94,34 @@
             <button id="btn-compare-timeline" class="btn btn-primary btn-compare" disabled>
                 <i class="fa-solid fa-clock-rotate-left"></i> Run GeoWatch Analysis
             </button>
+        </div>
+
+        <!-- Earth Replay Player Controls (v4) -->
+        <div class="replay-controls" id="replay-controls-panel" style="display: none; border-top: 1px dashed var(--border-color); padding-top: 12px; margin-top: 12px;">
+            <div class="replay-status-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span class="date-label" style="color: var(--accent);"><i class="fa-solid fa-circle-play fa-fade"></i> Replaying Evolution</span>
+                <span id="replay-year-label" style="font-family: var(--font-mono); font-weight: bold; color: var(--text-primary); font-size: 0.95rem; background: rgba(0,240,255,0.1); padding: 2px 8px; border-radius: 4px; border: 1px solid var(--accent-glow);">2016</span>
+            </div>
+            
+            <div class="scrubber-row" style="margin-bottom: 12px;">
+                <input type="range" id="replay-scrubber" min="0" max="0" value="0" style="width: 100%; accent-color: var(--accent); cursor: pointer; background: var(--bg-primary);">
+            </div>
+            
+            <div class="player-button-row" style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                <div style="display: flex; gap: 4px;">
+                    <button id="btn-replay-prev" class="export-btn" title="Previous event" style="padding: 6px 10px; background: rgba(255,255,255,0.02);"><i class="fa-solid fa-backward"></i></button>
+                    <button id="btn-replay-play" class="btn btn-primary" style="padding: 6px 12px; flex: none; font-size: 0.75rem;"><i class="fa-solid fa-play"></i> Play</button>
+                    <button id="btn-replay-next" class="export-btn" title="Next event" style="padding: 6px 10px; background: rgba(255,255,255,0.02);"><i class="fa-solid fa-forward"></i></button>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span class="date-label" style="font-size: 0.65rem;">Speed:</span>
+                    <select id="replay-speed" style="background: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; font-size: 0.7rem; padding: 4px; outline: none; cursor: pointer;">
+                        <option value="3000">1.0x (Slow)</option>
+                        <option value="1800" selected>1.5x (Normal)</option>
+                        <option value="1000">2.0x (Fast)</option>
+                    </select>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -140,6 +181,36 @@
         </div>
     </section>
 
+    <!-- Before / After Story Mode (v4) -->
+    <section class="control-group story-group" id="story-panel" style="display: none;">
+        <div class="panel-header border-bottom" style="justify-content: space-between; padding-bottom: 8px; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-book-open icon-accent"></i>
+                <h3 style="font-family: var(--font-heading);">Change Story Mode</h3>
+            </div>
+            <button id="btn-tell-story" class="btn btn-primary" style="padding: 4px 10px; font-size: 0.72rem; flex: none; box-shadow: none;">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Tell Me The Story
+            </button>
+        </div>
+        
+        <!-- Earth Biography Narrative -->
+        <div class="story-biography-wrapper" style="margin-top: 12px; display: none;" id="story-biography-block">
+            <span class="date-label" style="color: var(--accent);"><i class="fa-solid fa-book-atlas"></i> AI Earth Biography</span>
+            <p id="story-biography-text" style="font-size: 0.82rem; line-height: 1.5; color: #cbd5e1; margin-top: 6px; border-left: 2px solid var(--accent); padding-left: 10px; font-style: italic;"></p>
+        </div>
+        
+        <!-- Dynamic Change Story Cards -->
+        <div class="story-cards-container" id="story-cards-block" style="margin-top: 12px; display: flex; flex-direction: column; gap: 10px;">
+            <!-- Story Cards are dynamically inserted here -->
+        </div>
+
+        <!-- 2030 Future Outlook projection text -->
+        <div class="future-outlook-wrapper" style="margin-top: 16px; border-top: 1px dashed var(--border-color); padding-top: 12px; display: none;" id="future-outlook-block">
+            <span class="date-label" style="color: var(--secondary-accent);"><i class="fa-solid fa-forward"></i> 2030 Future Outlook</span>
+            <p id="future-outlook-text" style="font-size: 0.8rem; line-height: 1.4; color: #94a3b8; margin-top: 6px; background: rgba(168, 85, 247, 0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(168, 85, 247, 0.15);"></p>
+        </div>
+    </section>
+
     <!-- Saved History Section -->
     <section class="control-group history-group">
         <div class="panel-header">
@@ -180,6 +251,7 @@
             </div>
             <span class="terminal-title"><i class="fa-solid fa-terminal"></i> AI Terminal</span>
             <div class="terminal-actions" id="terminal-actions" style="display: none;">
+                <button class="export-btn" id="btn-share-report" title="Copy Shareable Public Link" style="background-color: rgba(0, 240, 255, 0.08); border-color: var(--accent); color: var(--accent); font-weight: bold;"><i class="fa-solid fa-share-nodes"></i> Share</button>
                 <button class="export-btn" id="btn-export-pdf" title="Export PDF Report"><i class="fa-solid fa-file-pdf"></i> PDF</button>
                 <button class="export-btn" id="btn-export-csv" title="Export CSV Data"><i class="fa-solid fa-file-csv"></i> CSV</button>
                 <button class="export-btn" id="btn-export-json" title="Export JSON Logs"><i class="fa-solid fa-file-code"></i> JSON</button>
