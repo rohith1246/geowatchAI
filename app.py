@@ -2,7 +2,8 @@ import os
 import requests
 from flask import Flask, render_template, request, jsonify
 from config import Config
-from models import db, Location
+from models import db, Location, AnalysisRecord
+from services.change_detector import detect_temporal_changes
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -235,6 +236,166 @@ def analyze_change():
         'source': 'GeoWatch AI Local Analysis Engine (API Sandbox Mode)',
         'location': {'name': name, 'lat': lat, 'lon': lon}
     })
+
+@app.route('/api/analyze-change', methods=['POST'])
+def analyze_temporal_change():
+    """
+    Perform deep satellite temporal change analysis between two dates.
+    Uses the change_detector service for metrics and Gemini API for report generation.
+    Stores the output in the AnalysisRecord table for archiving.
+    """
+    data = request.get_json() or {}
+    lat = data.get('latitude')
+    lon = data.get('longitude')
+    name = data.get('location_name', f"Hotspot ({lat:.4f}, {lon:.4f})").strip()
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
+
+    if lat is None or lon is None or not start_date or not end_date:
+        return jsonify({'error': 'latitude, longitude, start_date, and end_date are required.'}), 400
+
+    try:
+        lat = float(lat)
+        lon = float(lon)
+    except ValueError:
+        return jsonify({'error': 'Coordinates must be valid numbers.'}), 400
+
+    # 1. Run local change detector to generate telemetry metrics
+    metrics = detect_temporal_changes(lat, lon, start_date, end_date)
+
+    # 2. AI report generation using prompt summarizing metrics
+    report_text = ""
+    if HAS_GEMINI and gemini_client:
+        try:
+            prompt = (
+                f"You are GeoWatch AI, an advanced orbital remote sensing analyst.\n"
+                f"Generate a comprehensive 'GeoWatch Change Report' for: '{name}' "
+                f"at coordinates Latitude: {lat:.6f}, Longitude: {lon:.6f} comparing two dates:\n"
+                f"Start Date: {start_date} and End Date: {end_date}.\n\n"
+                f"We have detected the following local metrics across the timeframe:\n"
+                f"- Vegetation Change: {metrics['vegetation_change']}\n"
+                f"- Road Grid Growth: {metrics['road_growth']}\n"
+                f"- Water Body Dynamics: {metrics['water_change']}\n"
+                f"- Built-up Urban Growth: {metrics['urban_growth']}\n"
+                f"- Overall AI Risk Rating: {metrics['risk_score']}\n\n"
+                f"Your task is to write a detailed, professional, structured report in Markdown. "
+                f"You must summarize these provided metrics without fabricating coordinates or input numbers.\n"
+                f"Include exactly the following sections with headings:\n"
+                f"1. **Summary** (High-level narrative of planetary changes at these coordinates)\n"
+                f"2. **Environmental Changes** (Analysis of vegetation/canopy shifts and moisture dynamics)\n"
+                f"3. **Infrastructure Changes** (Analysis of road networks, industrial growth, and building expansion)\n"
+                f"4. **Risk Assessment** (Detailed breakdown of current ecological and structural threat parameters)\n"
+                f"5. **Recommendations** (Actionable mitigation strategies for regional planners)\n\n"
+                f"Write in a scientific, authoritative, yet engaging tone. Avoid generic filler. Keep it strictly focused on the data above."
+            )
+            response = gemini_client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+            )
+            report_text = response.text
+        except Exception as e:
+            app.logger.warning(f"Gemini API change report failed: {e}. Falling back to local mock report.")
+            pass
+
+    if not report_text:
+        # Generate high-fidelity mock change report
+        report_text = generate_mock_change_report(name, lat, lon, start_date, end_date, metrics)
+
+    # 3. Store record in database
+    try:
+        new_record = AnalysisRecord(
+            location_name=name,
+            latitude=lat,
+            longitude=lon,
+            start_date=start_date,
+            end_date=end_date,
+            vegetation_change=metrics['vegetation_change'],
+            road_growth=metrics['road_growth'],
+            water_change=metrics['water_change'],
+            urban_growth=metrics['urban_growth'],
+            risk_score=metrics['risk_score'],
+            report=report_text
+        )
+        db.session.add(new_record)
+        db.session.commit()
+        return jsonify({
+            'id': new_record.id,
+            'metrics': metrics,
+            'report': report_text,
+            'record': new_record.to_dict()
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Database error while saving analysis: {e}")
+        return jsonify({'error': 'Failed to save analysis record.'}), 500
+
+@app.route('/api/analysis-records', methods=['GET'])
+def get_analysis_records():
+    """Retrieve all archived analysis reports, sorted by newest first."""
+    try:
+        records = AnalysisRecord.query.order_by(AnalysisRecord.created_at.desc()).all()
+        return jsonify([rec.to_dict() for rec in records])
+    except Exception as e:
+        app.logger.error(f"Database error while fetching analysis history: {e}")
+        return jsonify({'error': 'Failed to retrieve analysis history.'}), 500
+
+@app.route('/api/analysis-records/<int:rec_id>', methods=['GET'])
+def get_analysis_record(rec_id):
+    """Retrieve a single archived analysis report by its ID."""
+    try:
+        record = AnalysisRecord.query.get(rec_id)
+        if not record:
+            return jsonify({'error': 'Analysis record not found.'}), 404
+        return jsonify(record.to_dict())
+    except Exception as e:
+        app.logger.error(f"Database error while fetching analysis record: {e}")
+        return jsonify({'error': 'Failed to retrieve analysis record.'}), 500
+
+@app.route('/api/analysis-records/<int:rec_id>', methods=['DELETE'])
+def delete_analysis_record(rec_id):
+    """Delete an archived analysis report by its ID."""
+    try:
+        record = AnalysisRecord.query.get(rec_id)
+        if not record:
+            return jsonify({'error': 'Analysis record not found.'}), 404
+        db.session.delete(record)
+        db.session.commit()
+        return jsonify({'message': 'Analysis record deleted successfully.', 'id': rec_id})
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Database error while deleting analysis record: {e}")
+        return jsonify({'error': 'Failed to delete analysis record.'}), 500
+
+def generate_mock_change_report(name, lat, lon, start_date, end_date, metrics):
+    """Generates a highly realistic mock change detection report based on calculated metrics."""
+    return f"""### 🛰️ GeoWatch Temporal Change Detection Report
+**Target Location**: {name}  
+**Coordinates**: {lat:.6f}° N/S, {lon:.6f}° E/W  
+**Timeframe**: `{start_date}` to `{end_date}`  
+**Operational Satellites**: Landsat-8/9, Sentinel-2 (Inter-temporal Synthesis)
+
+---
+
+#### 1. Summary
+Multi-temporal satellite imagery analysis indicates substantial surface changes at these coordinates between {start_date} and {end_date}. The analysis reveals significant trends in urban development and corresponding alterations in local environmental parameters.
+
+#### 2. Environmental Changes
+* **Vegetation/NDVI Index**: {metrics['vegetation_change']}
+* **Hydrological Dynamics (NDWI)**: {metrics['water_change']}
+
+#### 3. Infrastructure Changes
+* **Road Density Networks**: {metrics['road_growth']}
+* **Built-up Sprawl**: {metrics['urban_growth']}
+
+#### 4. Risk Assessment
+* **Overall threat level has been computed as {metrics['risk_score']}**.
+* Environmental buffer degradation is active. Surface impermeability factors indicate a moderate increase in flash flooding potential and local temperature variations (urban heat island effect).
+
+#### 5. Recommendations
+1. **Zoning Restrictions**: Enforce ecological containment belts around regions showing extreme vegetation clearing.
+2. **Hydrological Protection**: Establish green buffers along waterways to prevent siltation and manage runoff.
+3. **Periodic Telemetry**: Schedule quarterly orbital sensing sweeps to monitor encroachment velocity.
+"""
 
 def generate_mock_report(name, lat, lon):
     """Generates a highly realistic, coordinate-aware satellite analysis report."""

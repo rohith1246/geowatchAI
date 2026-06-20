@@ -13,8 +13,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnSaveLoc = document.getElementById('btn-save-loc');
     const btnAnalyzeAi = document.getElementById('btn-analyze-ai');
     
+    // GeoWatch v2 Timeline & Metrics Elements
+    const btnCompareTimeline = document.getElementById('btn-compare-timeline');
+    const startDateInput = document.getElementById('start-date');
+    const endDateInput = document.getElementById('end-date');
+    
+    const metricsPanel = document.getElementById('metrics-panel');
+    const metricVeg = document.getElementById('metric-veg');
+    const metricWater = document.getElementById('metric-water');
+    const metricRoad = document.getElementById('metric-road');
+    const metricUrban = document.getElementById('metric-urban');
+    const metricRisk = document.getElementById('metric-risk');
+    
     const savedLocationsList = document.getElementById('saved-locations-list');
     const historyCount = document.getElementById('history-count');
+    
+    const archivedReportsList = document.getElementById('archived-reports-list');
+    const archiveCount = document.getElementById('archive-count');
     
     const terminalScreen = document.getElementById('terminal-screen');
     const terminalWelcome = document.querySelector('.terminal-welcome');
@@ -88,6 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Enable buttons
         btnSaveLoc.disabled = false;
         btnAnalyzeAi.disabled = false;
+        btnCompareTimeline.disabled = false;
         
         // Reset save button layout (in case it was checked)
         btnSaveLoc.innerHTML = '<i class="fa-regular fa-bookmark"></i> Save Location';
@@ -414,7 +430,211 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // 13. GeoWatch Timeline Compare Handler (v2)
+    btnCompareTimeline.addEventListener('click', () => {
+        if (!selectedCoords) return;
+        
+        const startDate = startDateInput.value;
+        const endDate = endDateInput.value;
+        
+        if (!startDate || !endDate) {
+            alert("Please select both a Start Date and an End Date.");
+            return;
+        }
+
+        // UI transitions
+        terminalWelcome.style.display = 'none';
+        terminalOutput.style.display = 'none';
+        terminalFooter.style.display = 'none';
+        terminalLoading.style.display = 'flex';
+        metricsPanel.style.display = 'none'; // reset metrics view
+        
+        btnCompareTimeline.disabled = true;
+        btnCompareTimeline.innerHTML = '<i class="fa-solid fa-satellite-dish fa-spin"></i> Comparing...';
+
+        fetch('/api/analyze-change', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                location_name: selectedLocationName,
+                latitude: selectedCoords.lat,
+                longitude: selectedCoords.lng,
+                start_date: startDate,
+                end_date: endDate
+            })
+        })
+        .then(res => {
+            if (!res.ok) throw new Error("Temporal comparison analysis failed");
+            return res.json();
+        })
+        .then(data => {
+            terminalLoading.style.display = 'none';
+            btnCompareTimeline.disabled = false;
+            btnCompareTimeline.innerHTML = '<i class="fa-solid fa-clock-rotate-left"></i> Run GeoWatch Analysis';
+
+            // Populate Visual Metric Cards
+            metricVeg.textContent = data.metrics.vegetation_change;
+            metricWater.textContent = data.metrics.water_change;
+            metricRoad.textContent = data.metrics.road_growth;
+            metricUrban.textContent = data.metrics.urban_growth;
+            metricRisk.textContent = data.metrics.risk_score;
+            metricsPanel.style.display = 'block';
+
+            // Render Markdown AI report
+            const htmlContent = marked.parse(data.report);
+            terminalOutput.innerHTML = htmlContent;
+            terminalOutput.style.display = 'block';
+
+            // Setup footer engine tag
+            engineTag.textContent = `Engine: ${data.source}`;
+            terminalFooter.style.display = 'flex';
+
+            terminalScreen.scrollTop = 0;
+
+            // Trigger animation
+            terminalOutput.style.animation = 'none';
+            terminalOutput.offsetHeight; /* trigger reflow */
+            terminalOutput.style.animation = 'fadeIn 0.6s ease';
+
+            // Reload archives list
+            loadArchivedReports();
+        })
+        .catch(err => {
+            console.error("Temporal compare error:", err);
+            terminalLoading.style.display = 'none';
+            btnCompareTimeline.disabled = false;
+            btnCompareTimeline.innerHTML = '<i class="fa-solid fa-clock-rotate-left"></i> Run GeoWatch Analysis';
+
+            terminalOutput.innerHTML = `
+                <p style="color: #ef4444;"><i class="fa-solid fa-circle-exclamation"></i> ERROR: Temporal telemetry modeling failed.</p>
+                <p style="color: #94a3b8; font-size: 0.8rem;">Reason: ${err.message}. Ensure backend is online.</p>
+            `;
+            terminalOutput.style.display = 'block';
+        });
+    });
+
+    // 14. Fetch Archived Reports
+    function loadArchivedReports() {
+        fetch('/api/analysis-records')
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    console.error("API error fetching archives:", data.error);
+                    return;
+                }
+                renderArchivedReportsList(data);
+            })
+            .catch(err => {
+                console.error("Error fetching archives:", err);
+            });
+    }
+
+    // 15. Render Archived Reports List
+    function renderArchivedReportsList(records) {
+        archiveCount.textContent = records.length;
+        
+        if (records.length === 0) {
+            archivedReportsList.innerHTML = `
+                <div class="history-placeholder">
+                    <i class="fa-solid fa-file-invoice"></i>
+                    <p>No archives saved yet. Run a temporal comparison analysis.</p>
+                </div>
+            `;
+            return;
+        }
+
+        archivedReportsList.innerHTML = '';
+        records.forEach(rec => {
+            const item = document.createElement('div');
+            item.className = 'history-item';
+            item.setAttribute('data-id', rec.id);
+
+            // Reuses .btn-delete-history class for styling the delete button
+            item.innerHTML = `
+                <div class="history-info">
+                    <div class="history-name" title="${rec.location_name}">${rec.location_name}</div>
+                    <div class="history-coords">${rec.start_date.substring(0,4)} ➔ ${rec.end_date.substring(0,4)} | Risk: ${rec.metrics.risk_score}</div>
+                </div>
+                <button class="btn-delete-history btn-delete-archive" title="Delete Archive">
+                    <i class="fa-regular fa-trash-can"></i>
+                </button>
+            `;
+
+            // Fly-to and restore state on click
+            item.addEventListener('click', (e) => {
+                if (e.target.closest('.btn-delete-archive')) return;
+
+                selectedCoords = { lat: rec.latitude, lng: rec.longitude };
+                selectedLocationName = rec.location_name;
+
+                map.flyTo([rec.latitude, rec.longitude], 12, {
+                    animate: true,
+                    duration: 1.5
+                });
+
+                // Update date pickers
+                startDateInput.value = rec.start_date;
+                endDateInput.value = rec.end_date;
+
+                // Update UI panels
+                updateSelectedCoordinatesUI(rec.latitude, rec.longitude, rec.location_name);
+                placeMarker(rec.latitude, rec.longitude, rec.location_name);
+
+                // Populate metrics cards
+                metricVeg.textContent = rec.metrics.vegetation_change;
+                metricWater.textContent = rec.metrics.water_change;
+                metricRoad.textContent = rec.metrics.road_growth;
+                metricUrban.textContent = rec.metrics.urban_growth;
+                metricRisk.textContent = rec.metrics.risk_score;
+                metricsPanel.style.display = 'block';
+
+                // Populate terminal report
+                terminalWelcome.style.display = 'none';
+                terminalLoading.style.display = 'none';
+                terminalOutput.innerHTML = marked.parse(rec.report);
+                terminalOutput.style.display = 'block';
+
+                engineTag.textContent = `Engine: Archived Report (ID: ${rec.id})`;
+                terminalFooter.style.display = 'flex';
+
+                terminalScreen.scrollTop = 0;
+            });
+
+            // Delete click event
+            const deleteBtn = item.querySelector('.btn-delete-archive');
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteArchivedReport(rec.id);
+            });
+
+            archivedReportsList.appendChild(item);
+        });
+    }
+
+    // 16. Delete Archived Report
+    function deleteArchivedReport(id) {
+        if (!confirm("Are you sure you want to permanently delete this archived report?")) return;
+
+        fetch(`/api/analysis-records/${id}`, {
+            method: 'DELETE'
+        })
+        .then(res => {
+            if (!res.ok) throw new Error("Failed to delete archive");
+            return res.json();
+        })
+        .then(() => {
+            loadArchivedReports();
+        })
+        .catch(err => {
+            console.error("Error deleting archive:", err);
+            alert("Could not delete archived report.");
+        });
+    }
+
     // Run Initializations
     initMap();
     loadSavedLocations();
+    loadArchivedReports();
 });

@@ -55,24 +55,106 @@
             <button id="btn-save-loc" class="btn btn-secondary" disabled>
                 <i class="fa-regular fa-bookmark"></i> Save Location
             </button>
-            <button id="btn-analyze-ai" class="btn btn-primary" disabled>
-                <i class="fa-solid fa-wand-magic-sparkles"></i> Ask AI Changes
+            <button id="btn-analyze-ai" class="btn btn-secondary" disabled>
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Ask AI (Single)
             </button>
+        </div>
+    </section>
+
+    <!-- GeoWatch Timeline Panel (v2) -->
+    <section class="control-group timeline-group" id="timeline-panel">
+        <div class="panel-header">
+            <i class="fa-solid fa-calendar-days icon-accent"></i>
+            <h3>GeoWatch Timeline</h3>
+        </div>
+        <div class="timeline-inputs">
+            <div class="date-input-row">
+                <div class="date-field">
+                    <label for="start-date" class="date-label">Start Date</label>
+                    <input type="date" id="start-date" value="2016-01-01">
+                </div>
+                <div class="date-field">
+                    <label for="end-date" class="date-label">End Date</label>
+                    <input type="date" id="end-date" value="2026-01-01">
+                </div>
+            </div>
+            <button id="btn-compare-timeline" class="btn btn-primary btn-compare" disabled>
+                <i class="fa-solid fa-clock-rotate-left"></i> Run GeoWatch Analysis
+            </button>
+        </div>
+    </section>
+
+    <!-- Temporal Telemetry Metrics Panel (v2) -->
+    <section class="control-group metrics-group" id="metrics-panel" style="display: none;">
+        <div class="panel-header">
+            <i class="fa-solid fa-chart-simple icon-accent"></i>
+            <h3>Temporal Telemetry Metrics</h3>
+        </div>
+        <div class="metrics-grid">
+            <div class="metric-card veg-card">
+                <div class="m-card-header">
+                    <i class="fa-solid fa-tree text-green"></i>
+                    <span class="m-title">Vegetation Shift</span>
+                </div>
+                <div class="m-value" id="metric-veg">-</div>
+            </div>
+            <div class="metric-card water-card">
+                <div class="m-card-header">
+                    <i class="fa-solid fa-droplet text-blue"></i>
+                    <span class="m-title">Water Bodies</span>
+                </div>
+                <div class="m-value" id="metric-water">-</div>
+            </div>
+            <div class="metric-card road-card">
+                <div class="m-card-header">
+                    <i class="fa-solid fa-road text-slate"></i>
+                    <span class="m-title">Road Grid</span>
+                </div>
+                <div class="m-value" id="metric-road">-</div>
+            </div>
+            <div class="metric-card urban-card">
+                <div class="m-card-header">
+                    <i class="fa-solid fa-city text-cyan"></i>
+                    <span class="m-title">Urban Growth</span>
+                </div>
+                <div class="m-value" id="metric-urban">-</div>
+            </div>
+            <div class="metric-card risk-card">
+                <div class="m-card-header">
+                    <i class="fa-solid fa-triangle-exclamation text-orange"></i>
+                    <span class="m-title">AI Ecological Risk</span>
+                </div>
+                <div class="m-value" id="metric-risk">-</div>
+            </div>
         </div>
     </section>
 
     <!-- Saved History Section -->
     <section class="control-group history-group">
         <div class="panel-header">
-            <i class="fa-solid fa-clock-rotate-left icon-accent"></i>
-            <h3>Monitoring History</h3>
+            <i class="fa-solid fa-bookmark icon-accent"></i>
+            <h3>Pinned hotspots</h3>
             <span class="badge" id="history-count">0</span>
         </div>
         <div class="history-list" id="saved-locations-list">
-            <!-- Dynamically populated -->
             <div class="history-placeholder">
                 <i class="fa-solid fa-globe-asia"></i>
-                <p>No locations saved yet. Click the map to pin and save a hotspot.</p>
+                <p>No locations saved yet. Click the map to pin a hotspot.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Archived Reports History Section (v2) -->
+    <section class="control-group history-group">
+        <div class="panel-header">
+            <i class="fa-solid fa-box-archive icon-accent"></i>
+            <h3>GeoWatch Archives</h3>
+            <span class="badge" id="archive-count">0</span>
+        </div>
+        <div class="history-list" id="archived-reports-list">
+            <div class="history-placeholder">
+                <i class="fa-solid fa-file-invoice"></i>
+                <p>No archives saved yet. Run a temporal comparison analysis.</p>
             </div>
         </div>
     </section>
@@ -92,8 +174,8 @@
         </div>
         <div class="terminal-content" id="terminal-screen">
             <div class="terminal-welcome">
-                <p class="console-cursor">Welcome to GeoWatch Engine v1.0.0...</p>
-                <p class="dim-text">Please click anywhere on the map or search a location, then trigger 'Ask AI Changes' to execute neural change-detection modeling on temporal multispectral arrays.</p>
+                <p class="console-cursor">Welcome to GeoWatch Engine v2.0.0...</p>
+                <p class="dim-text">Select coordinates, choose Start/End dates in the timeline panel, and click "Run GeoWatch Analysis" to analyze planetary changes and generate a detailed report.</p>
             </div>
             <div class="terminal-loader" id="terminal-loading" style="display: none;">
                 <div class="satellite-orbit">
