@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<!-- Sidebar / Control Panel -->
+<aside class="sidebar">
+    <!-- Brand / Header -->
+    <header class="brand-header">
+        <div class="logo-area">
+            <span class="logo-pulse"></span>
+            <i class="fa-solid fa-satellite-dish brand-icon"></i>
+            <h1>GeoWatch <span class="highlight-text">AI</span></h1>
+        </div>
+        <p class="tagline">Ask AI what changed anywhere on Earth</p>
+    </header>
+
+    <!-- Search Section -->
+    <section class="control-group search-group">
+        <label for="location-search" class="section-label">
+            <i class="fa-solid fa-magnifying-glass-location"></i> Explore Location
+        </label>
+        <div class="search-input-wrapper">
+            <input type="text" id="location-search" placeholder="Search cities, regions, or islands..." autocomplete="off">
+            <button id="search-clear-btn" class="search-clear-btn" aria-label="Clear search" style="display: none;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            <div id="search-spinner" class="search-spinner" style="display: none;">
+                <i class="fa-solid fa-circle-notch fa-spin"></i>
+            </div>
+            <div id="search-dropdown" class="search-results-dropdown" style="display: none;"></div>
+        </div>
+    </section>
+
+    <!-- Selection Status / Action Panel -->
+    <section class="control-group selection-group" id="selection-panel">
+        <div class="panel-header">
+            <i class="fa-solid fa-location-crosshairs icon-accent"></i>
+            <h3>Selected Coordinate</h3>
+        </div>
+        <div class="coordinate-display">
+            <div class="coord-row">
+                <span class="coord-label">Latitude:</span>
+                <span class="coord-value" id="selected-lat">-</span>
+            </div>
+            <div class="coord-row">
+                <span class="coord-label">Longitude:</span>
+                <span class="coord-value" id="selected-lng">-</span>
+            </div>
+            <div class="coord-row" id="location-name-row" style="display: none;">
+                <span class="coord-label">Resolved:</span>
+                <span class="coord-value resolved-name" id="selected-name">-</span>
+            </div>
+        </div>
+        
+        <div class="action-buttons">
+            <button id="btn-save-loc" class="btn btn-secondary" disabled>
+                <i class="fa-regular fa-bookmark"></i> Save Location
+            </button>
+            <button id="btn-analyze-ai" class="btn btn-primary" disabled>
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Ask AI Changes
+            </button>
+        </div>
+    </section>
+
+    <!-- Saved History Section -->
+    <section class="control-group history-group">
+        <div class="panel-header">
+            <i class="fa-solid fa-clock-rotate-left icon-accent"></i>
+            <h3>Monitoring History</h3>
+            <span class="badge" id="history-count">0</span>
+        </div>
+        <div class="history-list" id="saved-locations-list">
+            <!-- Dynamically populated -->
+            <div class="history-placeholder">
+                <i class="fa-solid fa-globe-asia"></i>
+                <p>No locations saved yet. Click the map to pin and save a hotspot.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- AI Analysis Terminal -->
+    <section class="control-group terminal-group" id="analysis-panel">
+        <div class="panel-header border-bottom">
+            <div class="terminal-dots">
+                <span class="dot red"></span>
+                <span class="dot yellow"></span>
+                <span class="dot green"></span>
+            </div>
+            <span class="terminal-title"><i class="fa-solid fa-terminal"></i> AI Orbital Terminal</span>
+            <button id="btn-close-terminal" class="terminal-close-btn" style="display: none;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="terminal-content" id="terminal-screen">
+            <div class="terminal-welcome">
+                <p class="console-cursor">Welcome to GeoWatch Engine v1.0.0...</p>
+                <p class="dim-text">Please click anywhere on the map or search a location, then trigger 'Ask AI Changes' to execute neural change-detection modeling on temporal multispectral arrays.</p>
+            </div>
+            <div class="terminal-loader" id="terminal-loading" style="display: none;">
+                <div class="satellite-orbit">
+                    <i class="fa-solid fa-satellite fa-spin-pulse"></i>
+                </div>
+                <p class="loading-status">Locking orbit, synthesizing bands...</p>
+                <p class="loading-subtext">Executing spectral index change analysis (NDVI/NDWI/Albedo)...</p>
+            </div>
+            <div class="terminal-results markdown-body" id="terminal-output" style="display: none;">
+                <!-- Markdown content parsed by marked.js -->
+            </div>
+        </div>
+        <div class="terminal-footer" id="terminal-footer" style="display: none;">
+            <span class="engine-tag" id="engine-tag">Engine: Idle</span>
+        </div>
+    </section>
+</aside>
+
+<!-- Full-screen Map Container -->
+<main class="map-container">
+    <div id="map"></div>
+    
+    <!-- Mini floating coordinate dashboard overlay -->
+    <div class="floating-dashboard-overlay">
+        <div class="badge-overlay">
+            <i class="fa-solid fa-eye text-glow-cyan"></i> ESRI World Imagery (2026 Archive)
+        </div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<!-- Marked.js for rendering markdown output dynamically inside the terminal -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<!-- Custom JavaScript file for controlling the Dashboard UI -->
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

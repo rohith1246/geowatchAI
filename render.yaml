@@ -1,0 +1,23 @@
+services:
+  # Web Service running the Flask App
+  - type: web
+    name: geowatch-ai
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: geowatch-db
+          property: connectionString
+      - key: GEMINI_API_KEY
+        sync: false # User can configure this in the Render dashboard manually
+
+# Managed PostgreSQL Database
+databases:
+  - name: geowatch-db
+    plan: free # Can be upgraded for production
