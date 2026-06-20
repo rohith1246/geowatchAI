@@ -149,6 +149,93 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Helper: Map year to friendly source name for debugging
+    function getSatelliteSourceName(year) {
+        const y = parseInt(year);
+        if (isNaN(y)) {
+            return 'ESRI World Imagery';
+        }
+        if (y < 2014) {
+            return 'Esri Wayback 2014';
+        } else if (y === 2014) {
+            return 'Esri Wayback 2014';
+        } else if (y === 2015) {
+            return 'Esri Wayback 2015';
+        } else if (y === 2016) {
+            return 'EOX Sentinel-2 (2016)';
+        } else if (y <= 2025) {
+            return `EOX Sentinel-2 (${y})`;
+        } else {
+            return 'ESRI World Imagery';
+        }
+    }
+
+    // Helper: Update Spatial Telemetry Debug Panel UI
+    function updateDebugPanel(year, source, status, url) {
+        const yearEl = document.getElementById('debug-active-year');
+        const sourceEl = document.getElementById('debug-tile-source');
+        const statusEl = document.getElementById('debug-load-status');
+        const urlEl = document.getElementById('debug-tile-url');
+        
+        if (yearEl) yearEl.textContent = year;
+        if (sourceEl) sourceEl.textContent = source;
+        if (statusEl) {
+            statusEl.textContent = status;
+            if (status.includes("Failed")) {
+                statusEl.style.color = "var(--danger)";
+            } else if (status.includes("Success")) {
+                statusEl.style.color = "var(--success)";
+            } else {
+                statusEl.style.color = "var(--accent)";
+            }
+        }
+        if (urlEl) {
+            urlEl.textContent = url;
+            urlEl.title = url;
+        }
+    }
+
+    // Helper: Bind tile layer lifecycle events for URL logging, status reporting, and automatic ESRI fallback
+    function bindTileLayerEvents(layer, initialYear) {
+        layer.activeYear = initialYear;
+        layer.sourceName = getSatelliteSourceName(initialYear);
+
+        layer.on('tileloadstart', function(e) {
+            console.log(`[Tile Request] Year: ${layer.activeYear}, Source: ${layer.sourceName}, URL: ${e.url}`);
+            updateDebugPanel(layer.activeYear, layer.sourceName, "Loading", e.url);
+        });
+
+        layer.on('tileload', function(e) {
+            console.log(`[Tile Success] Year: ${layer.activeYear}, Source: ${layer.sourceName}`);
+            if (layer.options.opacity !== 0) {
+                updateDebugPanel(layer.activeYear, layer.sourceName, "Success", e.tile.src);
+            }
+        });
+
+        layer.on('tileerror', function(e) {
+            const coords = e.coords;
+            const fallbackUrl = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${coords.z}/${coords.y}/${coords.x}`;
+            
+            if (e.tile.getAttribute('data-fallback-attempted')) {
+                // Prevent infinite loop if fallback itself fails
+                e.tile.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+                console.error(`[Tile Fallback Failed] Year: ${layer.activeYear}, Source: ${layer.sourceName}`);
+                if (layer.options.opacity !== 0) {
+                    updateDebugPanel(layer.activeYear, layer.sourceName, "Failed (Fallback failed)", fallbackUrl);
+                }
+                return;
+            }
+            
+            console.warn(`[Tile Failed] Year: ${layer.activeYear}, Source: ${layer.sourceName}, URL: ${e.tile.src}. Falling back to ESRI World Imagery.`);
+            e.tile.setAttribute('data-fallback-attempted', 'true');
+            e.tile.src = fallbackUrl;
+            
+            if (layer.options.opacity !== 0) {
+                updateDebugPanel(layer.activeYear, layer.sourceName, "Failed (Falling back)", fallbackUrl);
+            }
+        });
+    }
+
     // Map Tile Loading State Visual Indicator Handler
     function updateMapLoadingState(pane, isLoading) {
         const label = document.querySelector(`.${pane}-label`);
@@ -189,9 +276,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // Initialize base layers with historical composites and error fallbacks
         tileLayerBefore = L.tileLayer(getSatelliteTileUrl(startYear), {
             attribution: getSatelliteAttribution(startYear),
-            maxZoom: 18,
-            errorTileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+            maxZoom: 18
         }).addTo(mapBefore);
+
+        bindTileLayerEvents(tileLayerBefore, startYear);
 
         tileLayerBefore.on('loading', () => updateMapLoadingState('before', true));
         tileLayerBefore.on('load', () => updateMapLoadingState('before', false));
@@ -204,9 +292,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         tileLayerAfter = L.tileLayer(getSatelliteTileUrl(endYear), {
             attribution: getSatelliteAttribution(endYear),
-            maxZoom: 18,
-            errorTileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+            maxZoom: 18
         }).addTo(mapAfter);
+
+        bindTileLayerEvents(tileLayerAfter, endYear);
 
         tileLayerAfter.on('loading', () => updateMapLoadingState('after', true));
         tileLayerAfter.on('load', () => updateMapLoadingState('after', false));
@@ -621,9 +710,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const layer = L.tileLayer(url, {
                 attribution: attr,
                 maxZoom: 18,
-                errorTileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                 opacity: 0
             }).addTo(mapBefore);
+            
+            bindTileLayerEvents(layer, y);
             
             layer.on('loading', () => updateMapLoadingState('before', true));
             layer.on('load', () => updateMapLoadingState('before', false));
@@ -770,6 +860,7 @@ document.addEventListener('DOMContentLoaded', () => {
             for (const y in timelineLayersBefore) {
                 if (parseInt(y) === activeYear) {
                     timelineLayersBefore[y].setOpacity(1.0);
+                    updateDebugPanel(activeYear, getSatelliteSourceName(activeYear), "Success (Cached)", timelineLayersBefore[y]._url);
                 } else {
                     timelineLayersBefore[y].setOpacity(0);
                 }
@@ -777,6 +868,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             // Fallback to setting URL on the single layer
             if (tileLayerBefore) {
+                tileLayerBefore.activeYear = activeYear;
+                tileLayerBefore.sourceName = getSatelliteSourceName(activeYear);
                 tileLayerBefore.setOpacity(1.0);
                 tileLayerBefore.setUrl(getSatelliteTileUrl(event.year));
             }
@@ -886,6 +979,8 @@ document.addEventListener('DOMContentLoaded', () => {
     startDateInput.addEventListener('change', () => {
         const startYear = parseInt(startDateInput.value.substring(0, 4));
         if (!isNaN(startYear) && tileLayerBefore) {
+            tileLayerBefore.activeYear = startYear;
+            tileLayerBefore.sourceName = getSatelliteSourceName(startYear);
             tileLayerBefore.setUrl(getSatelliteTileUrl(startYear));
         }
     });
@@ -893,6 +988,8 @@ document.addEventListener('DOMContentLoaded', () => {
     endDateInput.addEventListener('change', () => {
         const endYear = parseInt(endDateInput.value.substring(0, 4));
         if (!isNaN(endYear) && tileLayerAfter) {
+            tileLayerAfter.activeYear = endYear;
+            tileLayerAfter.sourceName = getSatelliteSourceName(endYear);
             tileLayerAfter.setUrl(getSatelliteTileUrl(endYear));
         }
     });
@@ -1066,10 +1163,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 const recordStartYear = parseInt(data.record.start_date.substring(0, 4)) || 2016;
                 const recordEndYear = parseInt(data.record.end_date.substring(0, 4)) || 2026;
                 if (tileLayerBefore) {
+                    tileLayerBefore.activeYear = recordStartYear;
+                    tileLayerBefore.sourceName = getSatelliteSourceName(recordStartYear);
                     tileLayerBefore.setOpacity(1.0);
                     tileLayerBefore.setUrl(getSatelliteTileUrl(recordStartYear));
                 }
                 if (tileLayerAfter) {
+                    tileLayerAfter.activeYear = recordEndYear;
+                    tileLayerAfter.sourceName = getSatelliteSourceName(recordEndYear);
                     tileLayerAfter.setOpacity(1.0);
                     tileLayerAfter.setUrl(getSatelliteTileUrl(recordEndYear));
                 }
@@ -1227,10 +1328,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 const archiveStartYear = parseInt(rec.start_date.substring(0, 4)) || 2016;
                 const archiveEndYear = parseInt(rec.end_date.substring(0, 4)) || 2026;
                 if (tileLayerBefore) {
+                    tileLayerBefore.activeYear = archiveStartYear;
+                    tileLayerBefore.sourceName = getSatelliteSourceName(archiveStartYear);
                     tileLayerBefore.setOpacity(1.0);
                     tileLayerBefore.setUrl(getSatelliteTileUrl(archiveStartYear));
                 }
                 if (tileLayerAfter) {
+                    tileLayerAfter.activeYear = archiveEndYear;
+                    tileLayerAfter.sourceName = getSatelliteSourceName(archiveEndYear);
                     tileLayerAfter.setOpacity(1.0);
                     tileLayerAfter.setUrl(getSatelliteTileUrl(archiveEndYear));
                 }
@@ -1489,6 +1594,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // Restore map base tiles to the default start date input year and reset opacity
             const startYear = parseInt(startDateInput.value.substring(0, 4)) || 2016;
             if (tileLayerBefore) {
+                tileLayerBefore.activeYear = startYear;
+                tileLayerBefore.sourceName = getSatelliteSourceName(startYear);
                 tileLayerBefore.setOpacity(1.0);
                 tileLayerBefore.setUrl(getSatelliteTileUrl(startYear));
             }

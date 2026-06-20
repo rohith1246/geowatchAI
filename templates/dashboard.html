@@ -340,6 +340,29 @@
             <i class="fa-solid fa-code-compare text-glow-cyan"></i> Synchronized Dual View
         </div>
     </div>
+    
+    <!-- Spatial Telemetry Debug Panel -->
+    <div id="telemetry-debug-panel" class="floating-debug-overlay">
+        <div class="debug-header">
+            <i class="fa-solid fa-bug text-cyan"></i> Spatial Telemetry Debug
+        </div>
+        <div class="debug-row">
+            <span class="debug-label">Active Year:</span>
+            <span id="debug-active-year" class="debug-value">-</span>
+        </div>
+        <div class="debug-row">
+            <span class="debug-label">Tile Source:</span>
+            <span id="debug-tile-source" class="debug-value">-</span>
+        </div>
+        <div class="debug-row">
+            <span class="debug-label">Load Status:</span>
+            <span id="debug-load-status" class="debug-value">-</span>
+        </div>
+        <div class="debug-row debug-url-row">
+            <span class="debug-label">Tile URL:</span>
+            <div id="debug-tile-url" class="debug-value url-text" title="-">-</div>
+        </div>
+    </div>
 </main>
 {% endblock %}
 
