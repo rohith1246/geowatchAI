@@ -302,8 +302,11 @@ def analyze_temporal_change():
         app.logger.error(f"Evidence generation failed: {e}")
         return jsonify({'error': 'Geospatial evidence engine failed.'}), 500
 
-    # 2. AI report generation using prompt summarizing metrics (implications only)
+    # 2. AI consolidated generation using prompt summarizing metrics
     report_text = ""
+    biography_text = ""
+    projection_text = ""
+    
     evidence_bullets = "\n".join([
         f"- **{ev['metric']}**: {ev['value']} (Source: {ev['source']}, Confidence: {ev['confidence']}%, Method: {ev['calculation']})"
         for ev in evidence
@@ -313,42 +316,50 @@ def analyze_temporal_change():
         try:
             prompt = (
                 f"You are GeoWatch AI, an advanced orbital remote sensing analyst.\n"
-                f"Generate a comprehensive 'GeoWatch Change Report' for: '{name}' "
+                f"Perform a detailed satellite imagery change detection analysis and future projection for: '{name}' "
                 f"at coordinates Latitude: {lat:.6f}, Longitude: {lon:.6f} comparing two dates:\n"
                 f"Start Date: {start_date} and End Date: {end_date}.\n\n"
-                f"Here is the verified evidence collected by our geospatial sensors and data connectors:\n"
-                f"{evidence_bullets}\n\n"
+                f"Verified evidence collected:\n{evidence_bullets}\n\n"
                 f"Data quality confidence rating: {confidence_score}% ({confidence_level} Confidence).\n\n"
-                f"Your task is to write a detailed, professional, structured report in Markdown. "
-                f"You must strictly summarize and explain the implications of these provided metrics. "
-                f"Do not fabricate values. Do not invent environmental claims or create unsupported percentages. "
-                f"Ensure that all metrics discussed in the report are directly traceable to the evidence above.\n\n"
-                f"Include exactly the following sections with headings:\n"
-                f"1. **Summary** (High-level narrative of planetary changes at these coordinates)\n"
-                f"2. **Environmental Changes** (Analysis of vegetation/canopy shifts and moisture dynamics)\n"
-                f"3. **Infrastructure Changes** (Analysis of road networks, industrial growth, and building expansion)\n"
-                f"4. **Risk Assessment** (Detailed breakdown of current ecological and structural threat parameters)\n"
-                f"5. **Recommendations** (Actionable mitigation strategies for regional planners)\n\n"
-                f"Write in a scientific, authoritative, yet engaging tone. Avoid generic filler."
+                f"Your task is to generate three separate outputs. You MUST separate them EXACTLY with the following markers:\n"
+                f"=== BIOGRAPHY ===\n"
+                f"[A single cohesive narrative paragraph of 100-150 words summarizing the historical evolution of this location. Strictly use only the provided metrics. Do not fabricate values.]\n"
+                f"=== PROJECTION ===\n"
+                f"[A single paragraph of 80-120 words detailing the estimated ecological and built-up changes by 2030 if current trends persist. Present findings as estimates starting with '[AI Projection] ']\n"
+                f"=== REPORT ===\n"
+                f"[A comprehensive, professional, structured change report in Markdown. Strictly summarize and explain the implications of the evidence metrics. Include Summary, Environmental Changes, Infrastructure Changes, Risk Assessment, and Recommendations.]"
             )
             response = gemini_client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=prompt,
             )
-            report_text = response.text
+            full_text = response.text
+            
+            # Extract sections using regex
+            bio_match = re.search(r'=== BIOGRAPHY ===\s*(.*?)\s*(=== PROJECTION ===|=== REPORT ===|$)', full_text, re.DOTALL)
+            proj_match = re.search(r'=== PROJECTION ===\s*(.*?)\s*(=== BIOGRAPHY ===|=== REPORT ===|$)', full_text, re.DOTALL)
+            report_match = re.search(r'=== REPORT ===\s*(.*?)\s*(=== BIOGRAPHY ===|=== PROJECTION ===|$)', full_text, re.DOTALL)
+            
+            if bio_match:
+                biography_text = bio_match.group(1).strip()
+            if proj_match:
+                projection_text = proj_match.group(1).strip()
+            if report_match:
+                report_text = report_match.group(1).strip()
         except Exception as e:
-            app.logger.warning(f"Gemini API change report failed: {e}. Falling back to local mock report.")
-            pass
-
+            app.logger.warning(f"Consolidated Gemini API call failed: {e}. Using local models fallback.")
+            
+    # Fallback to local generators if any section is empty
+    if not biography_text:
+        biography_text = generate_biography(name, lat, lon, start_date, end_date, evidence, confidence_score)
+    if not projection_text:
+        projection_text = generate_projection(name, lat, lon, metrics)
     if not report_text:
-        # Generate high-fidelity mock change report
         report_text = generate_mock_change_report(name, lat, lon, start_date, end_date, metrics, confidence_score, confidence_level, evidence_bullets)
 
-    # 2.5 Run V4 Biography, Replay Timeline, and Future Projection Engines
+    # 2.5 Compile V4 Replay Timeline and Story Cards
     try:
         timeline_events = generate_timeline(lat, lon, start_date, end_date, metrics)
-        biography_text = generate_biography(name, lat, lon, start_date, end_date, evidence, confidence_score, gemini_client)
-        projection_text = generate_projection(name, lat, lon, metrics, gemini_client)
         
         # Compile Story Cards metadata
         story_cards = [
