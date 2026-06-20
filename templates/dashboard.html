@@ -129,6 +129,17 @@
         </div>
     </section>
 
+    <!-- Evidence Explorer Panel (v3) -->
+    <section class="control-group evidence-group" id="evidence-panel" style="display: none;">
+        <div class="panel-header">
+            <i class="fa-solid fa-shield-halved icon-accent"></i>
+            <h3>Evidence Explorer</h3>
+        </div>
+        <div class="evidence-list" id="evidence-explorer-list">
+            <!-- Dynamically populated evidence trails -->
+        </div>
+    </section>
+
     <!-- Saved History Section -->
     <section class="control-group history-group">
         <div class="panel-header">
@@ -167,7 +178,12 @@
                 <span class="dot yellow"></span>
                 <span class="dot green"></span>
             </div>
-            <span class="terminal-title"><i class="fa-solid fa-terminal"></i> AI Orbital Terminal</span>
+            <span class="terminal-title"><i class="fa-solid fa-terminal"></i> AI Terminal</span>
+            <div class="terminal-actions" id="terminal-actions" style="display: none;">
+                <button class="export-btn" id="btn-export-pdf" title="Export PDF Report"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+                <button class="export-btn" id="btn-export-csv" title="Export CSV Data"><i class="fa-solid fa-file-csv"></i> CSV</button>
+                <button class="export-btn" id="btn-export-json" title="Export JSON Logs"><i class="fa-solid fa-file-code"></i> JSON</button>
+            </div>
             <button id="btn-close-terminal" class="terminal-close-btn" style="display: none;">
                 <i class="fa-solid fa-xmark"></i>
             </button>
@@ -195,13 +211,20 @@
 </aside>
 
 <!-- Full-screen Map Container -->
-<main class="map-container">
-    <div id="map"></div>
+<main class="map-container dual-maps">
+    <div class="map-pane-wrapper">
+        <div class="map-pane-label left-label">Before (Start Date)</div>
+        <div id="map-before" class="map-viewport"></div>
+    </div>
+    <div class="map-pane-wrapper">
+        <div class="map-pane-label right-label">After (End Date)</div>
+        <div id="map-after" class="map-viewport"></div>
+    </div>
     
     <!-- Mini floating coordinate dashboard overlay -->
     <div class="floating-dashboard-overlay">
         <div class="badge-overlay">
-            <i class="fa-solid fa-eye text-glow-cyan"></i> ESRI World Imagery (2026 Archive)
+            <i class="fa-solid fa-code-compare text-glow-cyan"></i> Synchronized Dual View
         </div>
     </div>
 </main>

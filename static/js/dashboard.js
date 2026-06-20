@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnSaveLoc = document.getElementById('btn-save-loc');
     const btnAnalyzeAi = document.getElementById('btn-analyze-ai');
     
-    // GeoWatch v2 Timeline & Metrics Elements
+    // GeoWatch v2/v3 Timeline & Metrics Elements
     const btnCompareTimeline = document.getElementById('btn-compare-timeline');
     const startDateInput = document.getElementById('start-date');
     const endDateInput = document.getElementById('end-date');
@@ -37,36 +37,85 @@ document.addEventListener('DOMContentLoaded', () => {
     const terminalOutput = document.getElementById('terminal-output');
     const terminalFooter = document.getElementById('terminal-footer');
     const engineTag = document.getElementById('engine-tag');
+
+    // GeoWatch v3 Evidence Elements & Export buttons
+    const btnExportPdf = document.getElementById('btn-export-pdf');
+    const btnExportCsv = document.getElementById('btn-export-csv');
+    const btnExportJson = document.getElementById('btn-export-json');
+    const terminalActions = document.getElementById('terminal-actions');
+    const evidencePanel = document.getElementById('evidence-panel');
+    const evidenceExplorerList = document.getElementById('evidence-explorer-list');
+    const btnCloseTerminal = document.getElementById('btn-close-terminal');
     
     // Map State variables
-    let map;
-    let activeMarker = null;
+    let mapBefore;
+    let mapAfter;
+    let markerBefore = null;
+    let markerAfter = null;
     let selectedCoords = null;
     let selectedLocationName = '';
     let searchDebounceTimeout = null;
+    let activeRecordId = null;
 
-    // 1. Initialize Map
+    // 1. Initialize Dual Synchronized Maps
     function initMap() {
-        // Set default view to a global perspective
-        map = L.map('map', {
+        // Initialize Left Map (Before)
+        mapBefore = L.map('map-before', {
             zoomControl: true,
             maxZoom: 18,
             minZoom: 2
         }).setView([20.0, 0.0], 3);
 
-        // Define ESRI Satellite base layer
-        const esriWorldImagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-        }).addTo(map);
+        // Initialize Right Map (After)
+        mapAfter = L.map('map-after', {
+            zoomControl: true,
+            maxZoom: 18,
+            minZoom: 2
+        }).setView([20.0, 0.0], 3);
 
-        // Define ESRI hybrid borders and labels overlay
-        const esriLabels = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+        // Define ESRI Satellite base layer for Before
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+        }).addTo(mapBefore);
+
+        // Define ESRI Hybrid borders & places overlay for Before
+        L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
             attribution: 'Labels &copy; Esri',
             opacity: 0.85
-        }).addTo(map);
+        }).addTo(mapBefore);
 
-        // Map Click Event
-        map.on('click', onMapClick);
+        // Define ESRI Satellite base layer for After
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+        }).addTo(mapAfter);
+
+        // Define ESRI Hybrid borders & places overlay for After
+        L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Labels &copy; Esri',
+            opacity: 0.85
+        }).addTo(mapAfter);
+
+        // Click Event Listeners
+        mapBefore.on('click', onMapClick);
+        mapAfter.on('click', onMapClick);
+
+        // Synchronize views of both maps
+        let isSyncing = false;
+        mapBefore.on('move', () => {
+            if (!isSyncing) {
+                isSyncing = true;
+                mapAfter.setView(mapBefore.getCenter(), mapBefore.getZoom(), { animate: false });
+                isSyncing = false;
+            }
+        });
+
+        mapAfter.on('move', () => {
+            if (!isSyncing) {
+                isSyncing = true;
+                mapBefore.setView(mapAfter.getCenter(), mapAfter.getZoom(), { animate: false });
+                isSyncing = false;
+            }
+        });
     }
 
     // 2. Map Click Handler
@@ -109,24 +158,31 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSaveLoc.innerHTML = '<i class="fa-regular fa-bookmark"></i> Save Location';
     }
 
-    // 4. Place Marker on Map
+    // 4. Place Marker on Both Maps
     function placeMarker(lat, lng, popupText) {
-        if (activeMarker) {
-            map.removeLayer(activeMarker);
+        if (markerBefore) {
+            mapBefore.removeLayer(markerBefore);
+        }
+        if (markerAfter) {
+            mapAfter.removeLayer(markerAfter);
         }
         
-        // Create custom icon or style
-        activeMarker = L.marker([lat, lng]).addTo(map);
+        // Create custom markers for both maps
+        markerBefore = L.marker([lat, lng]).addTo(mapBefore);
+        markerAfter = L.marker([lat, lng]).addTo(mapAfter);
         
-        // Bind modern dark themed popup
-        activeMarker.bindPopup(`
+        const popupContent = `
             <div class="popup-details">
                 <h4>Pinned Location</h4>
                 <p>${popupText}</p>
                 <div>Lat: <span>${lat.toFixed(5)}</span></div>
                 <div>Lng: <span>${lng.toFixed(5)}</span></div>
             </div>
-        `).openPopup();
+        `;
+        
+        // Bind popups
+        markerBefore.bindPopup(popupContent).openPopup();
+        markerAfter.bindPopup(popupContent);
     }
 
     // 5. Search Autocomplete Debounce
@@ -205,11 +261,9 @@ document.addEventListener('DOMContentLoaded', () => {
         searchInput.value = name;
         searchDropdown.style.display = 'none';
         
-        // Fly map smoothly to the search location
-        map.flyTo([lat, lon], 13, {
-            animate: true,
-            duration: 1.8
-        });
+        // Fly both maps smoothly to the search location
+        mapBefore.flyTo([lat, lon], 13, { animate: true, duration: 1.8 });
+        mapAfter.flyTo([lat, lon], 13, { animate: true, duration: 1.8 });
         
         updateSelectedCoordinatesUI(lat, lon, name);
         placeMarker(lat, lon, name);
@@ -231,7 +285,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.error("API error fetching locations:", data.error);
                     return;
                 }
-                
                 renderLocationsList(data);
             })
             .catch(err => {
@@ -276,10 +329,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 selectedCoords = { lat: loc.latitude, lng: loc.longitude };
                 selectedLocationName = loc.location_name;
                 
-                map.flyTo([loc.latitude, loc.longitude], 12, {
-                    animate: true,
-                    duration: 1.5
-                });
+                mapBefore.flyTo([loc.latitude, loc.longitude], 12, { animate: true, duration: 1.5 });
+                mapAfter.flyTo([loc.latitude, loc.longitude], 12, { animate: true, duration: 1.5 });
                 
                 updateSelectedCoordinatesUI(loc.latitude, loc.longitude, loc.location_name);
                 placeMarker(loc.latitude, loc.longitude, loc.location_name);
@@ -366,7 +417,67 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 12. AI Analysis Handler
+    // Helpers for Evidence Confidence Rendering
+    function getConfidenceClass(conf) {
+        if (conf >= 90) return 'conf-very-high';
+        if (conf >= 75) return 'conf-high';
+        if (conf >= 50) return 'conf-medium';
+        if (conf >= 30) return 'conf-low';
+        return 'conf-very-low';
+    }
+
+    function getConfidenceText(conf) {
+        if (conf >= 90) return 'Very High';
+        if (conf >= 75) return 'High';
+        if (conf >= 50) return 'Medium';
+        if (conf >= 30) return 'Low';
+        return 'Very Low';
+    }
+
+    // Render Evidence Cards in the Evidence Explorer Panel
+    function renderEvidenceExplorer(evidences) {
+        if (!evidences || evidences.length === 0) {
+            evidencePanel.style.display = 'none';
+            return;
+        }
+        
+        evidenceExplorerList.innerHTML = '';
+        evidences.forEach(ev => {
+            const card = document.createElement('div');
+            card.className = 'evidence-card';
+            
+            const confClass = getConfidenceClass(ev.confidence);
+            const confText = getConfidenceText(ev.confidence);
+            
+            card.innerHTML = `
+                <div class="ev-header">
+                    <span class="ev-metric-name">${ev.metric_name}</span>
+                    <span class="ev-value">${ev.metric_value}</span>
+                </div>
+                <div class="ev-details">
+                    <div class="ev-detail-item">
+                        <span class="ev-label">Source</span>
+                        <span class="ev-text">${ev.source_name}</span>
+                    </div>
+                    <div class="ev-detail-item">
+                        <span class="ev-label">Confidence</span>
+                        <div>
+                            <span class="badge-conf ${confClass}">${ev.confidence}% ${confText}</span>
+                        </div>
+                    </div>
+                    <div class="ev-detail-item ev-calc">
+                        <span class="ev-label">Calculation / Method</span>
+                        <span class="ev-text">${ev.calculation_method}</span>
+                    </div>
+                </div>
+            `;
+            evidenceExplorerList.appendChild(card);
+        });
+        
+        evidencePanel.style.display = 'block';
+    }
+
+    // 12. AI Analysis Handler (Single Point)
     btnAnalyzeAi.addEventListener('click', () => {
         if (!selectedCoords) return;
         
@@ -374,6 +485,10 @@ document.addEventListener('DOMContentLoaded', () => {
         terminalWelcome.style.display = 'none';
         terminalOutput.style.display = 'none';
         terminalFooter.style.display = 'none';
+        terminalActions.style.display = 'none';
+        metricsPanel.style.display = 'none';
+        evidencePanel.style.display = 'none';
+        activeRecordId = null;
         terminalLoading.style.display = 'flex';
         
         btnAnalyzeAi.disabled = true;
@@ -408,6 +523,9 @@ document.addEventListener('DOMContentLoaded', () => {
             engineTag.textContent = `Engine: ${data.source}`;
             terminalFooter.style.display = 'flex';
             
+            // Show close button
+            if (btnCloseTerminal) btnCloseTerminal.style.display = 'block';
+            
             // Scroll terminal content container to the bottom
             terminalScreen.scrollTop = 0;
             
@@ -430,7 +548,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // 13. GeoWatch Timeline Compare Handler (v2)
+    // 13. GeoWatch Timeline Compare Handler (v2 / v3)
     btnCompareTimeline.addEventListener('click', () => {
         if (!selectedCoords) return;
         
@@ -446,8 +564,11 @@ document.addEventListener('DOMContentLoaded', () => {
         terminalWelcome.style.display = 'none';
         terminalOutput.style.display = 'none';
         terminalFooter.style.display = 'none';
+        terminalActions.style.display = 'none';
+        metricsPanel.style.display = 'none';
+        evidencePanel.style.display = 'none';
+        activeRecordId = null;
         terminalLoading.style.display = 'flex';
-        metricsPanel.style.display = 'none'; // reset metrics view
         
         btnCompareTimeline.disabled = true;
         btnCompareTimeline.innerHTML = '<i class="fa-solid fa-satellite-dish fa-spin"></i> Comparing...';
@@ -482,6 +603,19 @@ document.addEventListener('DOMContentLoaded', () => {
             metricRisk.textContent = data.metrics.risk_score;
             metricsPanel.style.display = 'block';
 
+            // Render Evidence Explorer Panel
+            if (data.record && data.record.evidences) {
+                renderEvidenceExplorer(data.record.evidences);
+            } else {
+                evidencePanel.style.display = 'none';
+            }
+
+            // Set active record ID for exports
+            activeRecordId = data.id || (data.record ? data.record.id : null);
+            if (activeRecordId) {
+                terminalActions.style.display = 'flex';
+            }
+
             // Render Markdown AI report
             const htmlContent = marked.parse(data.report);
             terminalOutput.innerHTML = htmlContent;
@@ -490,6 +624,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // Setup footer engine tag
             engineTag.textContent = `Engine: ${data.source}`;
             terminalFooter.style.display = 'flex';
+            
+            // Show close button
+            if (btnCloseTerminal) btnCloseTerminal.style.display = 'block';
 
             terminalScreen.scrollTop = 0;
 
@@ -569,10 +706,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 selectedCoords = { lat: rec.latitude, lng: rec.longitude };
                 selectedLocationName = rec.location_name;
 
-                map.flyTo([rec.latitude, rec.longitude], 12, {
-                    animate: true,
-                    duration: 1.5
-                });
+                // Fly both maps smoothly to the archived location
+                mapBefore.flyTo([rec.latitude, rec.longitude], 12, { animate: true, duration: 1.5 });
+                mapAfter.flyTo([rec.latitude, rec.longitude], 12, { animate: true, duration: 1.5 });
 
                 // Update date pickers
                 startDateInput.value = rec.start_date;
@@ -590,6 +726,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 metricRisk.textContent = rec.metrics.risk_score;
                 metricsPanel.style.display = 'block';
 
+                // Render Evidence Explorer
+                if (rec.evidences) {
+                    renderEvidenceExplorer(rec.evidences);
+                } else {
+                    evidencePanel.style.display = 'none';
+                }
+
+                // Set active record ID for exports
+                activeRecordId = rec.id;
+                terminalActions.style.display = 'flex';
+
                 // Populate terminal report
                 terminalWelcome.style.display = 'none';
                 terminalLoading.style.display = 'none';
@@ -598,6 +745,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 engineTag.textContent = `Engine: Archived Report (ID: ${rec.id})`;
                 terminalFooter.style.display = 'flex';
+                
+                // Show close button
+                if (btnCloseTerminal) btnCloseTerminal.style.display = 'block';
 
                 terminalScreen.scrollTop = 0;
             });
@@ -630,6 +780,44 @@ document.addEventListener('DOMContentLoaded', () => {
         .catch(err => {
             console.error("Error deleting archive:", err);
             alert("Could not delete archived report.");
+        });
+    }
+
+    // Export Buttons Click Events
+    if (btnExportPdf) {
+        btnExportPdf.addEventListener('click', () => {
+            if (activeRecordId) {
+                window.location.href = `/api/analysis-records/${activeRecordId}/export/pdf`;
+            }
+        });
+    }
+
+    if (btnExportCsv) {
+        btnExportCsv.addEventListener('click', () => {
+            if (activeRecordId) {
+                window.location.href = `/api/analysis-records/${activeRecordId}/export/csv`;
+            }
+        });
+    }
+
+    if (btnExportJson) {
+        btnExportJson.addEventListener('click', () => {
+            if (activeRecordId) {
+                window.location.href = `/api/analysis-records/${activeRecordId}/export/json`;
+            }
+        });
+    }
+
+    // Close terminal button handler
+    if (btnCloseTerminal) {
+        btnCloseTerminal.addEventListener('click', () => {
+            terminalWelcome.style.display = 'block';
+            terminalOutput.style.display = 'none';
+            terminalLoading.style.display = 'none';
+            terminalFooter.style.display = 'none';
+            terminalActions.style.display = 'none';
+            btnCloseTerminal.style.display = 'none';
+            activeRecordId = null;
         });
     }
 

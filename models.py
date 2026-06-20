@@ -41,6 +41,9 @@ class AnalysisRecord(db.Model):
     report = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
+    # Relationship to evidences with cascade delete
+    evidences = db.relationship('AnalysisEvidence', backref='analysis_record', lazy=True, cascade="all, delete-orphan")
+
     def to_dict(self):
         """Serializes the analysis record to a dictionary."""
         return {
@@ -58,5 +61,32 @@ class AnalysisRecord(db.Model):
                 'risk_score': self.risk_score
             },
             'report': self.report,
+            'created_at': self.created_at.isoformat(),
+            'evidences': [ev.to_dict() for ev in self.evidences]
+        }
+
+class AnalysisEvidence(db.Model):
+    """Database model for storing supporting evidence parameters for each metric."""
+    __tablename__ = 'analysis_evidences'
+
+    id = db.Column(db.Integer, primary_key=True)
+    analysis_id = db.Column(db.Integer, db.ForeignKey('analysis_records.id', ondelete='CASCADE'), nullable=False)
+    metric_name = db.Column(db.String(255), nullable=False)
+    metric_value = db.Column(db.String(255), nullable=False)
+    source_name = db.Column(db.String(255), nullable=False)
+    confidence = db.Column(db.Integer, nullable=False)
+    calculation_method = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        """Serializes the evidence record to a dictionary."""
+        return {
+            'id': self.id,
+            'analysis_id': self.analysis_id,
+            'metric_name': self.metric_name,
+            'metric_value': self.metric_value,
+            'source_name': self.source_name,
+            'confidence': self.confidence,
+            'calculation_method': self.calculation_method,
             'created_at': self.created_at.isoformat()
         }

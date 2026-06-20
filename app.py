@@ -1,9 +1,12 @@
 import os
 import requests
-from flask import Flask, render_template, request, jsonify
+import io
+import re
+import csv
+from flask import Flask, render_template, request, jsonify, send_file, make_response
 from config import Config
-from models import db, Location, AnalysisRecord
-from services.change_detector import detect_temporal_changes
+from models import db, Location, AnalysisRecord, AnalysisEvidence
+from services.evidence_engine import generate_evidence
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -241,8 +244,9 @@ def analyze_change():
 def analyze_temporal_change():
     """
     Perform deep satellite temporal change analysis between two dates.
-    Uses the change_detector service for metrics and Gemini API for report generation.
-    Stores the output in the AnalysisRecord table for archiving.
+    Uses public data connectors and the evidence engine to gather real telemetry
+    and calls Gemini to explain the implications.
+    Stores the output in the AnalysisRecord and AnalysisEvidence tables.
     """
     data = request.get_json() or {}
     lat = data.get('latitude')
@@ -260,11 +264,24 @@ def analyze_temporal_change():
     except ValueError:
         return jsonify({'error': 'Coordinates must be valid numbers.'}), 400
 
-    # 1. Run local change detector to generate telemetry metrics
-    metrics = detect_temporal_changes(lat, lon, start_date, end_date)
+    # 1. Run live evidence engine pipelines
+    try:
+        evidence_data = generate_evidence(lat, lon, start_date, end_date)
+        metrics = evidence_data['metrics']
+        confidence_score = evidence_data['confidence_score']
+        confidence_level = evidence_data['confidence_level']
+        evidence = evidence_data['evidence']
+    except Exception as e:
+        app.logger.error(f"Evidence generation failed: {e}")
+        return jsonify({'error': 'Geospatial evidence engine failed.'}), 500
 
-    # 2. AI report generation using prompt summarizing metrics
+    # 2. AI report generation using prompt summarizing metrics (implications only)
     report_text = ""
+    evidence_bullets = "\n".join([
+        f"- **{ev['metric']}**: {ev['value']} (Source: {ev['source']}, Confidence: {ev['confidence']}%, Method: {ev['calculation']})"
+        for ev in evidence
+    ])
+    
     if HAS_GEMINI and gemini_client:
         try:
             prompt = (
@@ -272,21 +289,20 @@ def analyze_temporal_change():
                 f"Generate a comprehensive 'GeoWatch Change Report' for: '{name}' "
                 f"at coordinates Latitude: {lat:.6f}, Longitude: {lon:.6f} comparing two dates:\n"
                 f"Start Date: {start_date} and End Date: {end_date}.\n\n"
-                f"We have detected the following local metrics across the timeframe:\n"
-                f"- Vegetation Change: {metrics['vegetation_change']}\n"
-                f"- Road Grid Growth: {metrics['road_growth']}\n"
-                f"- Water Body Dynamics: {metrics['water_change']}\n"
-                f"- Built-up Urban Growth: {metrics['urban_growth']}\n"
-                f"- Overall AI Risk Rating: {metrics['risk_score']}\n\n"
+                f"Here is the verified evidence collected by our geospatial sensors and data connectors:\n"
+                f"{evidence_bullets}\n\n"
+                f"Data quality confidence rating: {confidence_score}% ({confidence_level} Confidence).\n\n"
                 f"Your task is to write a detailed, professional, structured report in Markdown. "
-                f"You must summarize these provided metrics without fabricating coordinates or input numbers.\n"
+                f"You must strictly summarize and explain the implications of these provided metrics. "
+                f"Do not fabricate values. Do not invent environmental claims or create unsupported percentages. "
+                f"Ensure that all metrics discussed in the report are directly traceable to the evidence above.\n\n"
                 f"Include exactly the following sections with headings:\n"
                 f"1. **Summary** (High-level narrative of planetary changes at these coordinates)\n"
                 f"2. **Environmental Changes** (Analysis of vegetation/canopy shifts and moisture dynamics)\n"
                 f"3. **Infrastructure Changes** (Analysis of road networks, industrial growth, and building expansion)\n"
                 f"4. **Risk Assessment** (Detailed breakdown of current ecological and structural threat parameters)\n"
                 f"5. **Recommendations** (Actionable mitigation strategies for regional planners)\n\n"
-                f"Write in a scientific, authoritative, yet engaging tone. Avoid generic filler. Keep it strictly focused on the data above."
+                f"Write in a scientific, authoritative, yet engaging tone. Avoid generic filler."
             )
             response = gemini_client.models.generate_content(
                 model='gemini-2.5-flash',
@@ -299,9 +315,9 @@ def analyze_temporal_change():
 
     if not report_text:
         # Generate high-fidelity mock change report
-        report_text = generate_mock_change_report(name, lat, lon, start_date, end_date, metrics)
+        report_text = generate_mock_change_report(name, lat, lon, start_date, end_date, metrics, confidence_score, confidence_level, evidence_bullets)
 
-    # 3. Store record in database
+    # 3. Store record & associated evidence in database
     try:
         new_record = AnalysisRecord(
             location_name=name,
@@ -317,7 +333,21 @@ def analyze_temporal_change():
             report=report_text
         )
         db.session.add(new_record)
+        db.session.commit() # Save first to generate new_record.id
+
+        # Insert audit trail evidence records
+        for ev in evidence:
+            new_ev = AnalysisEvidence(
+                analysis_id=new_record.id,
+                metric_name=ev['metric'],
+                metric_value=ev['value'],
+                source_name=ev['source'],
+                confidence=ev['confidence'],
+                calculation_method=ev['calculation']
+            )
+            db.session.add(new_ev)
         db.session.commit()
+
         return jsonify({
             'id': new_record.id,
             'metrics': metrics,
@@ -366,13 +396,218 @@ def delete_analysis_record(rec_id):
         app.logger.error(f"Database error while deleting analysis record: {e}")
         return jsonify({'error': 'Failed to delete analysis record.'}), 500
 
-def generate_mock_change_report(name, lat, lon, start_date, end_date, metrics):
+@app.route('/api/analysis-records/<int:rec_id>/export/json', methods=['GET'])
+def export_json_report(rec_id):
+    """Export a saved analysis report as JSON."""
+    try:
+        record = AnalysisRecord.query.get(rec_id)
+        if not record:
+            return jsonify({'error': 'Record not found.'}), 404
+        return jsonify(record.to_dict())
+    except Exception as e:
+        app.logger.error(f"Export JSON error: {e}")
+        return jsonify({'error': 'Failed to export JSON.'}), 500
+
+@app.route('/api/analysis-records/<int:rec_id>/export/csv', methods=['GET'])
+def export_csv_report(rec_id):
+    """Export a saved analysis report as CSV."""
+    try:
+        record = AnalysisRecord.query.get(rec_id)
+        if not record:
+            return jsonify({'error': 'Record not found.'}), 404
+        
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write metadata
+        writer.writerow(['GEOWATCH GEOREPORT AUDIT TRAIL'])
+        writer.writerow([])
+        writer.writerow(['Location', record.location_name])
+        writer.writerow(['Latitude', record.latitude])
+        writer.writerow(['Longitude', record.longitude])
+        writer.writerow(['Start Date', record.start_date])
+        writer.writerow(['End Date', record.end_date])
+        writer.writerow(['Created At', record.created_at.isoformat()])
+        writer.writerow([])
+        
+        # Write Evidence Table
+        writer.writerow(['EVIDENCE LOGS'])
+        writer.writerow(['Metric Name', 'Metric Value', 'Data Source', 'Confidence Score (%)', 'Calculation Method'])
+        for ev in record.evidences:
+            writer.writerow([ev.metric_name, ev.metric_value, ev.source_name, ev.confidence, ev.calculation_method])
+        writer.writerow([])
+        
+        # Write Report Text
+        writer.writerow(['AI ANALYSIS REPORT'])
+        writer.writerow([record.report])
+        
+        response = make_response(output.getvalue())
+        response.headers["Content-Disposition"] = f"attachment; filename=geowatch-report-{rec_id}.csv"
+        response.headers["Content-type"] = "text/csv"
+        return response
+    except Exception as e:
+        app.logger.error(f"Export CSV error: {e}")
+        return jsonify({'error': 'Failed to export CSV.'}), 500
+
+@app.route('/api/analysis-records/<int:rec_id>/export/pdf', methods=['GET'])
+def export_pdf_report(rec_id):
+    """Export a saved analysis report as PDF using reportlab."""
+    try:
+        record = AnalysisRecord.query.get(rec_id)
+        if not record:
+            return jsonify({'error': 'Record not found.'}), 404
+            
+        pdf_buffer = generate_pdf_report(record)
+        return send_file(
+            pdf_buffer,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f"geowatch-report-{rec_id}.pdf"
+        )
+    except Exception as e:
+        app.logger.error(f"Export PDF error: {e}")
+        return jsonify({'error': f'Failed to export PDF: {str(e)}'}), 500
+
+def generate_pdf_report(record):
+    """Compiles a print-friendly document using ReportLab layout flows."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=40, leftMargin=40,
+        topMargin=40, bottomMargin=40
+    )
+    
+    story = []
+    styles = getSampleStyleSheet()
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Heading1'],
+        fontName='Helvetica-Bold',
+        fontSize=20,
+        leading=24,
+        textColor=colors.HexColor('#0f172a'),
+        spaceAfter=15
+    )
+    
+    subtitle_style = ParagraphStyle(
+        'DocSubtitle',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=10,
+        leading=15,
+        textColor=colors.HexColor('#475569'),
+        spaceAfter=18
+    )
+    
+    h2_style = ParagraphStyle(
+        'SectionHeader',
+        parent=styles['Heading2'],
+        fontName='Helvetica-Bold',
+        fontSize=13,
+        leading=17,
+        textColor=colors.HexColor('#1e293b'),
+        spaceBefore=14,
+        spaceAfter=8
+    )
+    
+    body_style = ParagraphStyle(
+        'BodyText',
+        parent=styles['BodyText'],
+        fontName='Helvetica',
+        fontSize=9.5,
+        leading=13.5,
+        textColor=colors.HexColor('#334155'),
+        spaceAfter=10
+    )
+    
+    # Document Header
+    story.append(Paragraph("GeoWatch AI - Geospatial Change Report", title_style))
+    meta_text = (
+        f"<b>Target Region:</b> {record.location_name}<br/>"
+        f"<b>Coordinates:</b> Lat: {record.latitude:.6f}, Lng: {record.longitude:.6f}<br/>"
+        f"<b>Observation Timeline:</b> {record.start_date} to {record.end_date}<br/>"
+        f"<b>Generated Timestamp (UTC):</b> {record.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+    story.append(Paragraph(meta_text, subtitle_style))
+    story.append(Spacer(1, 10))
+    
+    # Evidence Table
+    story.append(Paragraph("Geospatial Telemetry & Evidence Logs", h2_style))
+    
+    table_data = [[
+        Paragraph("<b>Metric</b>", body_style),
+        Paragraph("<b>Value</b>", body_style),
+        Paragraph("<b>Source</b>", body_style),
+        Paragraph("<b>Confidence</b>", body_style),
+        Paragraph("<b>Calculation / Method</b>", body_style)
+    ]]
+    
+    for ev in record.evidences:
+        table_data.append([
+            Paragraph(ev.metric_name, body_style),
+            Paragraph(ev.metric_value, body_style),
+            Paragraph(ev.source_name, body_style),
+            Paragraph(f"{ev.confidence}%", body_style),
+            Paragraph(ev.calculation_method, body_style)
+        ])
+        
+    t = Table(table_data, colWidths=[95, 75, 105, 60, 195])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f1f5f9')),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('LEFTPADDING', (0, 0), (-1, -1), 5),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 15))
+    
+    # AI Report content
+    story.append(Paragraph("AI Change Impact Report", h2_style))
+    
+    # Simple formatting of markdown to paragraphs
+    report_lines = record.report.split('\n')
+    for line in report_lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Heading translation
+        if line.startswith('### '):
+            story.append(Paragraph(line.replace('### ', ''), h2_style))
+        elif line.startswith('#### '):
+            story.append(Paragraph(line.replace('#### ', ''), h2_style))
+        elif line.startswith('* ') or line.startswith('- '):
+            bullet_text = line[2:]
+            bullet_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', bullet_text)
+            story.append(Paragraph(f"• {bullet_text}", body_style))
+        else:
+            line_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', line)
+            story.append(Paragraph(line_text, body_style))
+            
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+def generate_mock_change_report(name, lat, lon, start_date, end_date, metrics, confidence_score, confidence_level, evidence_bullets):
     """Generates a highly realistic mock change detection report based on calculated metrics."""
     return f"""### 🛰️ GeoWatch Temporal Change Detection Report
 **Target Location**: {name}  
 **Coordinates**: {lat:.6f}° N/S, {lon:.6f}° E/W  
 **Timeframe**: `{start_date}` to `{end_date}`  
 **Operational Satellites**: Landsat-8/9, Sentinel-2 (Inter-temporal Synthesis)
+**Data Confidence**: `{confidence_score}% ({confidence_level} Confidence)`
 
 ---
 
